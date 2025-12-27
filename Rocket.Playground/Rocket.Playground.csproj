@@ -19,7 +19,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <ProjectReference Include="..\Spring\Spring.csproj" />
+      <ProjectReference Include="..\Rocket\Rocket.csproj" />
     </ItemGroup>
     
 </Project>

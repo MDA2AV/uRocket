@@ -295,3 +295,39 @@ void shim_prep_send(struct io_uring_sqe* sqe,
 int shim_wait_cqe_timeout(struct io_uring *ring, struct io_uring_cqe **cqe_ptr, struct __kernel_timespec *ts) {
     return io_uring_wait_cqe_timeout(ring, cqe_ptr, ts);
 }
+
+/**
+ * Blocks until at least one CQE is available, or until timeout,
+ * or until 'wait_nr' CQEs are available (whichever comes first).
+ *
+ * Returns 0 on success, or -errno on error/timeout.
+ *
+ * Note: we pass NULL for sigmask, so no signal mask is applied.
+ */
+int shim_wait_cqes(struct io_uring *ring,
+                   struct io_uring_cqe **cqe_ptr,
+                   unsigned wait_nr,
+                   struct __kernel_timespec *ts)
+{
+    return io_uring_wait_cqes(ring, cqe_ptr, wait_nr, ts, NULL);
+}
+
+/**
+ * Blocks until at least one CQE is available or the timeout elapses.
+ *
+ * @param ring   The io_uring instance.
+ * @param cqe    Out: receives the pointer to the CQE when successful.
+ * @param timeout_ms  Timeout in milliseconds (>= 0).
+ *
+ * @return 0 on success, -ETIME on timeout, or -errno on error.
+ */
+int shim_wait_cqe_timeout_in(struct io_uring* ring,
+                          struct io_uring_cqe** cqe,
+                          long timeout_ms)
+{
+    struct __kernel_timespec ts;
+    ts.tv_sec  = timeout_ms / 1000;
+    ts.tv_nsec = (timeout_ms % 1000) * 1000000LL; // ms → ns
+
+    return io_uring_wait_cqe_timeout(ring, cqe, &ts);
+}

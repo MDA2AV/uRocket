@@ -1,46 +1,38 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
-using static Overdrive.ABI.Native;
 
-namespace Overdrive.Engine;
+namespace Rocket.Engine;
 
-public sealed partial class OverdriveEngine
-{
+// ReSharper disable always CheckNamespace
+// ReSharper disable always SuggestVarOrType_BuiltInTypes
+// (var is avoided intentionally in this project so that concrete types are visible at call sites.)
+
+public sealed partial class RocketEngine {
     private static volatile bool StopAll = false;
-
     // Lock-free queues for passing accepted fds to workers
     private static ConcurrentQueue<int>[] WorkerQueues = null!;
-
     // Stats tracking
     private static long[] WorkerConnectionCounts = null!;
     private static long[] WorkerRequestCounts = null!;
-    
-    public struct ConnectionItem
-    {
+    public struct ConnectionItem {
         public readonly int WorkerIndex;
         public readonly int ClientFd;
-
-        public ConnectionItem(int workerIndex, int clientFd)
-        {
+        public ConnectionItem(int workerIndex, int clientFd) {
             WorkerIndex = workerIndex;
             ClientFd = clientFd;
         }
     }
+
+    private static readonly Channel<ConnectionItem> ConnectionQueues =
+        Channel.CreateUnbounded<ConnectionItem>(new UnboundedChannelOptions());
     
-    private static Channel<ConnectionItem> ConnectionQueues = null!;
-    
-    public async ValueTask<Connection> AcceptAsync(CancellationToken cancellationToken = default)
-    {
+    public async ValueTask<Connection> AcceptAsync(CancellationToken cancellationToken = default) {
         var item = await ConnectionQueues.Reader.ReadAsync(cancellationToken);
         return Connections[item.WorkerIndex][item.ClientFd];
     }
-    
-    public void Run()
-    {
+    public void Run() {
         Console.CancelKeyPress += (_, __) => StopAll = true;
         InitOk();
-        
-        ConnectionQueues = Channel.CreateUnbounded<ConnectionItem>(new UnboundedChannelOptions());
 
         // Create lock-free queues for fd distribution
         WorkerQueues = new ConcurrentQueue<int>[s_nWorkers];
@@ -50,8 +42,7 @@ public sealed partial class OverdriveEngine
         s_Workers = new Worker[s_nWorkers];
         Connections = new Dictionary<int, Connection>[s_nWorkers];
         
-        for (var i = 0; i < s_nWorkers; i++)
-        {
+        for (var i = 0; i < s_nWorkers; i++) {
             WorkerQueues[i] = new ConcurrentQueue<int>();
             WorkerConnectionCounts[i] = 0;
             WorkerRequestCounts[i] = 0;
@@ -61,35 +52,24 @@ public sealed partial class OverdriveEngine
             s_Workers[i] = new Worker(i);
             s_Workers[i].InitPRing();
         }
-
-        // Start worker threads FIRST
+        
         var workerThreads = new Thread[s_nWorkers];
-        for (int i = 0; i < s_nWorkers; i++)
-        {
+        for (int i = 0; i < s_nWorkers; i++) {
             int wi = i;
-            workerThreads[i] = new Thread(() =>
-                {
+            workerThreads[i] = new Thread(() => {
                     try { WorkerLoop(wi); }
                     catch (Exception ex) { Console.Error.WriteLine($"[w{wi}] crash: {ex}"); }
                 })
                 { IsBackground = true, Name = $"uring-w{wi}" };
             workerThreads[i].Start();
         }
-
-        // Give workers time to initialize
-        Thread.Sleep(100);
         
+        //Thread.Sleep(100);
         Console.WriteLine($"Server started with {s_nWorkers} workers + 1 acceptor");
         
-        try
-        {
-            AcceptorLoop(c_ip, s_port, s_nWorkers);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[acceptor] crash: {ex}"); 
-        }
-
+        try { AcceptorLoop(c_ip, s_port, s_nWorkers); }
+        catch (Exception ex) { Console.Error.WriteLine($"[acceptor] crash: {ex}"); }
+        
         foreach (var t in workerThreads) t.Join();
         FreeOk();
     }

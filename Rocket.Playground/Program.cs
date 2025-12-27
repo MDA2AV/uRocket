@@ -1,7 +1,8 @@
 ﻿using System.Runtime.CompilerServices;
-using Overdrive.Engine;
+using System.Text;
+using Rocket.Engine;
 
-// dotnet publish -f net9.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
+// dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
 
 namespace Overdrive;
 
@@ -10,18 +11,15 @@ internal static class Program
 {
     internal static async Task Main()
     {
-        var builder = OverdriveEngine
+        var builder = RocketEngine
             .CreateBuilder()
-            //.SetWorkersSolver(() => Environment.ProcessorCount / 2)
-            .SetWorkersSolver(() => 16)
+            .SetWorkersSolver(() => 32)
             .SetBacklog(16 * 1024)
             .SetPort(8080)
             .SetRecvBufferSize(32 * 1024);
         
         var engine = builder.Build();
-        _ = Task.Run(() =>engine.Run());
-
-        await Task.Delay(1000);
+        _ = Task.Run(() => engine.Run());
         
         while (true)
         {
@@ -34,7 +32,6 @@ internal static class Program
     
     internal static async ValueTask HandleAsync(Connection connection)
     {
-        Console.WriteLine("start");
         try
         {
             while (true)
@@ -43,30 +40,37 @@ internal static class Program
                 await connection.ReadAsync();
                 //connection.Tcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 connection.Tcs = new(); // reset tcs
-                
+
+                unsafe
+                {
+                    var span = new ReadOnlySpan<byte>(connection.InPtr, connection.InLength);
+                    var s = Encoding.UTF8.GetString(span);
+                    //Console.WriteLine(s[0]);
+                }
+
                 // Flush response
                 unsafe
                 {
-                    var okPtr = OverdriveEngine.OK_PTR;
-                    var okLen = OverdriveEngine.OK_LEN;
-                    
-                    if (!OverdriveEngine.TryQueueSend(connection, okPtr, okLen))
+                    if (connection.HasBuffer)
                     {
-                        Console.WriteLine("Failed to queue send");
+                        var worker = RocketEngine.s_Workers[connection.WorkerIndex];
+                        worker.ReturnBufferRing(connection.InPtr, connection.BufferId);
                     }
+
+                    var okPtr = RocketEngine.OK_PTR;
+                    var okLen = RocketEngine.OK_LEN;
                         
-                    /*connection.OutPtr  = okPtr;
+                    connection.OutPtr  = okPtr;
                     connection.OutHead = 0;
                     connection.OutTail = okLen;
                     connection.Sending = true;
                     
-                    //DIOGO HERE, CAN WE SEND HERE TO AVOID THE CHANNEL? THE CHANNEL IS INCREASING LATENCY TOO MUCH??
-                    OverdriveEngine.SubmitSend(
-                        OverdriveEngine.s_Workers[connection.WorkerIndex].PRing,
+                    RocketEngine.SubmitSend(
+                        RocketEngine.s_Workers[connection.WorkerIndex].PRing,
                         connection.Fd,
                         connection.OutPtr,
                         connection.OutHead,
-                        connection.OutTail);*/
+                        connection.OutTail);
                 }
             }
         }

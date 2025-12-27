@@ -6,8 +6,9 @@
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
-        <Title>Spring</Title>
+        <Title>Rocket</Title>
         <Authors>Diogo Martins</Authors>
+        <RootNamespace>Rocket</RootNamespace>
         
     </PropertyGroup>
 

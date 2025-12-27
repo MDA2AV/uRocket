@@ -1,11 +1,13 @@
 using System.Runtime.CompilerServices;
-using System.Threading.Channels;
 
-namespace Overdrive.Engine;
+namespace Rocket.Engine;
 
 [SkipLocalsInit]
 public sealed unsafe class Connection
 {
+    public bool HasBuffer;
+    public ushort BufferId;
+    
     public int Fd;
     public int WorkerIndex;
     public bool Sending;
@@ -20,13 +22,7 @@ public sealed unsafe class Connection
 
     public TaskCompletionSource<bool> Tcs =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
-    
-    public Channel<OverdriveEngine.SendRequest> ReadQueue { get; } =
-        Channel.CreateUnbounded<OverdriveEngine.SendRequest>(new UnboundedChannelOptions
-        {
-            SingleReader = true,  // worker thread
-            SingleWriter = true,  // connection thread
-        });
+
 
     public Connection(int fd)
     {
