@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Rocket.ABI;
+namespace URocket.ABI;
 
 public static partial class ABI {
     // ------------------------------------------------------------------------------------

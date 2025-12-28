@@ -1,26 +1,27 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
-using static Rocket.ABI.ABI;
+using URocket;
+using static URocket.ABI.ABI;
 
 // ReSharper disable always CheckNamespace
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
 // (var is avoided intentionally in this project so that concrete types are visible at call sites.)
 
-namespace Rocket.Engine;
+namespace URocket.Engine;
 
 public sealed unsafe partial class RocketEngine {
     private static unsafe void ReactorHandlerSQPoll(int reactorId) {
         Dictionary<int, Connection> connections = Connections[reactorId];
         Reactor reactor = s_Reactors[reactorId];
         ConcurrentQueue<int> myQueue = ReactorQueues[reactorId]; // new FDs from acceptor
-        io_uring_cqe*[] cqes = new io_uring_cqe*[s_reactorBatchCQES];
+        io_uring_cqe*[] cqes = new io_uring_cqe*[reactor.Config.BatchCqes];
 
         const long WaitTimeoutNs = 1_000_000; // 1 ms
         __kernel_timespec ts; ts.tv_sec = 0; ts.tv_nsec = WaitTimeoutNs;
 
         // Optional: if your shim exposes this, cache whether SQPOLL is enabled for this ring
         // (purely for metrics / readability; submit logic should still key off NEED_WAKEUP).
-        uint ringSetupFlags = reactor.PRing != null ? shim_get_ring_flags(reactor.PRing) : 0;
+        uint ringSetupFlags = reactor.Ring != null ? shim_get_ring_flags(reactor.Ring) : 0;
         bool isSqPoll = (ringSetupFlags & IORING_SETUP_SQPOLL) != 0;
 
         try {
@@ -30,28 +31,28 @@ public sealed unsafe partial class RocketEngine {
 
                 // 1) Drain acceptor queue and arm multishot recv for each new fd.
                 while (myQueue.TryDequeue(out int newFd)) {
-                    ArmRecvMultishot(reactor.PRing, newFd, c_bufferRingGID);
+                    ArmRecvMultishot(reactor.Ring, newFd, c_bufferRingGID);
                     queuedSqe = true;
                 }
 
                 // 2) Submit only if we actually queued work (or if your ring says SQEs are pending).
                 //    (If your Arm* methods can fail to get an SQE and you defer, keep shim_sq_ready too.)
-                if (queuedSqe || shim_sq_ready(reactor.PRing) > 0) {
+                if (queuedSqe || shim_sq_ready(reactor.Ring) > 0) {
                     // IMPORTANT for SQPOLL:
                     // shim_submit() MUST do the equivalent of:
                     // - if (IORING_SQ_NEED_WAKEUP) -> io_uring_enter(..., IORING_ENTER_SQ_WAKEUP)
                     // If your shim doesn't, replace this call with a shim_submit_wakeup() that does.
-                    shim_submit(reactor.PRing);
+                    shim_submit(reactor.Ring);
                 }
 
                 // 3) Wait for at least 1 CQE (1ms timeout), then drain the CQ in a batch.
                 io_uring_cqe* cqe;
-                int rc = shim_wait_cqes(reactor.PRing, &cqe, 1u, &ts);
+                int rc = shim_wait_cqes(reactor.Ring, &cqe, 1u, &ts);
 
                 if (rc is -62 or < 0) { reactor.Counter++; continue; }
 
                 int got;
-                fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.PRing, pC, (uint)s_reactorBatchCQES);
+                fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.Ring, pC, (uint)reactor.Config.BatchCqes);
                 
                 for (int i = 0; i < got; i++) {
                     cqe = cqes[i];
@@ -70,11 +71,11 @@ public sealed unsafe partial class RocketEngine {
                             // Return buffer to ring if kernel provided one.
                             if (hasBuffer) {
                                 ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
+                                byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)reactor.Config.RecvBufferSize;
                                 shim_buf_ring_add(
                                     reactor.BufferRing,
                                     addr,
-                                    (uint)s_reactorRecvBufferSize,
+                                    (uint)reactor.Config.RecvBufferSize,
                                     bufferId,
                                     (ushort)reactor.BufferRingMask,
                                     reactor.BufferRingIndex++);
@@ -95,7 +96,7 @@ public sealed unsafe partial class RocketEngine {
                             if (connections.TryGetValue(fd, out Connection? connection)) {
                                 connection.HasBuffer = hasBuffer;
                                 connection.BufferId = bufferId;
-                                connection.InPtr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
+                                connection.InPtr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)reactor.Config.RecvBufferSize;
                                 connection.InLength = res;
 
                                 // Wake consumer
@@ -103,18 +104,18 @@ public sealed unsafe partial class RocketEngine {
 
                                 // If multishot stopped (no MORE flag), re-arm.
                                 if (!hasMore) {
-                                    ArmRecvMultishot(reactor.PRing, fd, c_bufferRingGID);
+                                    ArmRecvMultishot(reactor.Ring, fd, c_bufferRingGID);
                                     queuedSqe = true;
                                 }
                             } else {
                                 // Defensive: if we got a recv for an fd we don't track,
                                 // return its buffer so we don't leak ring entries.
                                 if (hasBuffer) {
-                                    byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
+                                    byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)reactor.Config.RecvBufferSize;
                                     shim_buf_ring_add(
                                         reactor.BufferRing,
                                         addr,
-                                        (uint)s_reactorRecvBufferSize,
+                                        (uint)reactor.Config.RecvBufferSize,
                                         bufferId,
                                         (ushort)reactor.BufferRingMask,
                                         reactor.BufferRingIndex++);
@@ -145,7 +146,7 @@ public sealed unsafe partial class RocketEngine {
                                 if (connection.OutHead < connection.OutTail)
                                 {
                                     SubmitSend(
-                                        reactor.PRing,
+                                        reactor.Ring,
                                         connection.Fd,
                                         connection.OutPtr,
                                         connection.OutHead,
@@ -155,13 +156,13 @@ public sealed unsafe partial class RocketEngine {
                             }
                         }
                     }
-                    shim_cqe_seen(reactor.PRing, cqe);
+                    shim_cqe_seen(reactor.Ring, cqe);
                 }
 
                 // 4) If we queued SQEs while processing CQEs (re-arms / continued sends), submit once.
-                if (queuedSqe || shim_sq_ready(reactor.PRing) > 0) {
+                if (queuedSqe || shim_sq_ready(reactor.Ring) > 0) {
                     // Same SQPOLL note as above: must wake on NEED_WAKEUP.
-                    shim_submit(reactor.PRing);
+                    shim_submit(reactor.Ring);
                 }
             }
         } finally {
@@ -169,15 +170,15 @@ public sealed unsafe partial class RocketEngine {
             CloseAll(connections);
 
             // Free buffer ring BEFORE destroying the ring
-            if (reactor.PRing != null && reactor.BufferRing != null) {
-                shim_free_buf_ring(reactor.PRing, reactor.BufferRing, (uint)s_reactorBufferRingEntries, c_bufferRingGID);
+            if (reactor.Ring != null && reactor.BufferRing != null) {
+                shim_free_buf_ring(reactor.Ring, reactor.BufferRing, (uint)reactor.Config.BufferRingEntries, c_bufferRingGID);
                 reactor.BufferRing = null;
             }
 
             // Destroy ring (unregisters CQ/SQ memory mappings)
-            if (reactor.PRing != null) {
-                shim_destroy_ring(reactor.PRing);
-                reactor.PRing = null;
+            if (reactor.Ring != null) {
+                shim_destroy_ring(reactor.Ring);
+                reactor.Ring = null;
             }
 
             // Free slab memory used by buf ring
