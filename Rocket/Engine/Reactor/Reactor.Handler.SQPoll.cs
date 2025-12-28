@@ -16,9 +16,7 @@ public sealed unsafe partial class RocketEngine {
         io_uring_cqe*[] cqes = new io_uring_cqe*[s_batchCQES];
 
         const long WaitTimeoutNs = 1_000_000; // 1 ms
-        __kernel_timespec ts;
-        ts.tv_sec = 0;
-        ts.tv_nsec = WaitTimeoutNs;
+        __kernel_timespec ts; ts.tv_sec = 0; ts.tv_nsec = WaitTimeoutNs;
 
         // Optional: if your shim exposes this, cache whether SQPOLL is enabled for this ring
         // (purely for metrics / readability; submit logic should still key off NEED_WAKEUP).
@@ -50,16 +48,7 @@ public sealed unsafe partial class RocketEngine {
                 io_uring_cqe* cqe;
                 int rc = shim_wait_cqes(reactor.PRing, &cqe, 1u, &ts);
 
-                if (rc == -62) // -ETIME
-                {
-                    reactor.Counter++; 
-                    continue;
-                }
-                if (rc < 0)
-                {
-                    reactor.Counter++;
-                    continue;
-                }
+                if (rc is -62 or < 0) { reactor.Counter++; continue; }
 
                 int got;
                 fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.PRing, pC, (uint)s_batchCQES);

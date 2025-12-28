@@ -17,6 +17,11 @@ public sealed partial class RocketEngine {
     private static ushort s_port = 8080;
     private static Func<int>? s_calculateNumberReactors;
     
+    private static uint s_acceptorFlags = 0;             
+    private static int s_acceptorSqThreadCpu = -1;       
+    private static uint s_acceptorSqThreadIdleMs = 100;  
+    private static uint s_acceptorRingEntries = 256;     
+    
     public static RocketBuilder CreateBuilder() => new RocketBuilder();
     public sealed class RocketBuilder {
         private readonly RocketEngine _engine;
