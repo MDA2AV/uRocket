@@ -5,15 +5,37 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        
+        <RootNamespace>Rocket</RootNamespace>
 
         <Title>Rocket</Title>
         <Authors>Diogo Martins</Authors>
-        <RootNamespace>Rocket</RootNamespace>
+        <RepositoryUrl>https://github.com/MDA2AV/Rocket</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <AssemblyVersion>10.0.0</AssemblyVersion>
+        <FileVersion>10.0.0</FileVersion>
+        <Version>10.0.0</Version>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <PackageTags>uring</PackageTags>
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+        <Description>https://github.com/MDA2AV/Rocket</Description>
+        <PackageProjectUrl>https://github.com/MDA2AV/Rocket</PackageProjectUrl>
         
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Extensions.ObjectPool" Version="10.0.0-rc.2.25502.107" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="native/linux-x64/liburingshim.so"
+              Pack="true"
+              PackagePath="runtimes/linux-x64/native/" />
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="native/linux-musl-x64/liburingshim.so"
+              Pack="true"
+              PackagePath="runtimes/linux-musl-x64/native/" />
     </ItemGroup>
 
     <ItemGroup>

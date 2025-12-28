@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
-using static Rocket.ABI;
+using static Rocket.ABI.ABI;
 
 // ReSharper disable always CheckNamespace
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
@@ -13,7 +13,7 @@ public sealed unsafe partial class RocketEngine {
         Dictionary<int,Connection> connections = Connections[reactorId];
         Reactor reactor   = s_Reactors[reactorId];
         ConcurrentQueue<int> myQueue = ReactorQueues[reactorId];     // new FDs from acceptor
-        io_uring_cqe*[] cqes = new io_uring_cqe*[s_batchCQES];
+        io_uring_cqe*[] cqes = new io_uring_cqe*[s_reactorBatchCQES];
         const long WaitTimeoutNs = 1_000_000; // 1 ms
 
         try {
@@ -25,7 +25,7 @@ public sealed unsafe partial class RocketEngine {
                 
                 if (rc is -62 or < 0) { reactor.Counter++; continue; }
 
-                fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.PRing, pC, (uint)s_batchCQES);
+                fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.PRing, pC, (uint)s_reactorBatchCQES);
 
                 for (int i = 0; i < got; i++) {
                     cqe = cqes[i];
@@ -42,8 +42,8 @@ public sealed unsafe partial class RocketEngine {
                             Console.WriteLine($"{reactor.ReactorId} {reactor.Counter}");
                             if (hasBuffer) {
                                 ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_recvBufferSize;
-                                shim_buf_ring_add(reactor.BufferRing, addr, (uint)s_recvBufferSize, bufferId, (ushort)reactor.BufferRingMask, reactor.BufferRingIndex++);
+                                byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
+                                shim_buf_ring_add(reactor.BufferRing, addr, (uint)s_reactorRecvBufferSize, bufferId, (ushort)reactor.BufferRingMask, reactor.BufferRingIndex++);
                                 shim_buf_ring_advance(reactor.BufferRing, 1);
                             }
                             if (connections.TryGetValue(fd, out var connection)) {
@@ -56,7 +56,7 @@ public sealed unsafe partial class RocketEngine {
                             if (connections.TryGetValue(fd, out var connection)) {
                                 connection.HasBuffer = hasBuffer;
                                 connection.BufferId = bufferId;
-                                connection.InPtr = reactor.BufferRingSlab + (nuint)connection.BufferId * (nuint)s_recvBufferSize;
+                                connection.InPtr = reactor.BufferRingSlab + (nuint)connection.BufferId * (nuint)s_reactorRecvBufferSize;
                                 connection.InLength = res;
                                 connection.SignalReadReady();
                                 
@@ -83,7 +83,7 @@ public sealed unsafe partial class RocketEngine {
             CloseAll(connections);
             // Free buffer ring BEFORE destroying the ring
             if (reactor.PRing != null && reactor.BufferRing != null) {
-                shim_free_buf_ring(reactor.PRing, reactor.BufferRing, (uint)s_bufferRingEntries, c_bufferRingGID);
+                shim_free_buf_ring(reactor.PRing, reactor.BufferRing, (uint)s_reactorBufferRingEntries, c_bufferRingGID);
                 reactor.BufferRing = null;
             }
             // Destroy ring (unregisters CQ/SQ memory mappings)

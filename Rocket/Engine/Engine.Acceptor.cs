@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using static Rocket.ABI;
+using static Rocket.ABI.ABI;
 
 namespace Rocket.Engine;
 
@@ -105,8 +105,8 @@ public sealed unsafe partial class RocketEngine {
 
     private static io_uring* CreatePRing(uint flags, int sqThreadCpu, uint sqThreadIdleMs, out int err, uint? ringEntries = null) {
         if(flags == 0)
-            return shim_create_ring(ringEntries ?? (uint)s_ringEntries, out err);
-        return shim_create_ring_ex((uint)s_ringEntries, flags, sqThreadCpu, sqThreadIdleMs, out err);
+            return shim_create_ring(ringEntries ?? (uint)s_reactorRingEntries, out err);
+        return shim_create_ring_ex((uint)s_reactorRingEntries, flags, sqThreadCpu, sqThreadIdleMs, out err);
     }
 
     // TODO: This seems to be causing Segmentation fault (core dumped) when sqe is null

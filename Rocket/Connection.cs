@@ -80,8 +80,8 @@ public sealed unsafe class Connection : IValueTaskSource<bool>
         BufferId = 0;
     }
 
+    // Setters for pooled connections
     public Connection SetFd(int fd) { Fd = fd; return this; }
-
     public Connection SetReactorId(int reactorId) { ReactorId = reactorId; return this; }
     
     // IValueTaskSource<bool> plumbing

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.ObjectPool;
-using static Rocket.ABI;
+using static Rocket.ABI.ABI;
 
 // ReSharper disable always CheckNamespace
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
@@ -50,22 +50,22 @@ public sealed unsafe partial class RocketEngine {
             
             // Setup buffer ring
             // TODO: Investigate this c_bufferRingGID
-            BufferRing = shim_setup_buf_ring(PRing, (uint)s_bufferRingEntries, c_bufferRingGID, 0, out var ret);
+            BufferRing = shim_setup_buf_ring(PRing, (uint)s_reactorBufferRingEntries, c_bufferRingGID, 0, out var ret);
             if (BufferRing == null || ret < 0) throw new Exception($"setup_buf_ring failed: ret={ret}");
 
-            BufferRingMask = (uint)(s_bufferRingEntries - 1);
-            nuint slabSize = (nuint)(s_bufferRingEntries * s_recvBufferSize);
+            BufferRingMask = (uint)(s_reactorBufferRingEntries - 1);
+            nuint slabSize = (nuint)(s_reactorBufferRingEntries * s_reactorRecvBufferSize);
             BufferRingSlab = (byte*)NativeMemory.AlignedAlloc(slabSize, 64);
 
-            for (ushort bid = 0; bid < s_bufferRingEntries; bid++) {
-                byte* addr = BufferRingSlab + (nuint)bid * (nuint)s_recvBufferSize;
-                shim_buf_ring_add(BufferRing, addr, (uint)s_recvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
+            for (ushort bid = 0; bid < s_reactorBufferRingEntries; bid++) {
+                byte* addr = BufferRingSlab + (nuint)bid * (nuint)s_reactorRecvBufferSize;
+                shim_buf_ring_add(BufferRing, addr, (uint)s_reactorRecvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
             }
-            shim_buf_ring_advance(BufferRing, (uint)s_bufferRingEntries);
+            shim_buf_ring_advance(BufferRing, (uint)s_reactorBufferRingEntries);
         }
 
         public void ReturnBufferRing(byte* addr, ushort bid) {
-            shim_buf_ring_add(BufferRing, addr, (uint)s_recvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
+            shim_buf_ring_add(BufferRing, addr, (uint)s_reactorRecvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
             shim_buf_ring_advance(BufferRing, 1);
         }
     }

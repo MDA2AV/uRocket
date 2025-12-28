@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
-using static Rocket.ABI;
+using static Rocket.ABI.ABI;
 
 // ReSharper disable always CheckNamespace
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
@@ -13,7 +13,7 @@ public sealed unsafe partial class RocketEngine {
         Dictionary<int, Connection> connections = Connections[reactorId];
         Reactor reactor = s_Reactors[reactorId];
         ConcurrentQueue<int> myQueue = ReactorQueues[reactorId]; // new FDs from acceptor
-        io_uring_cqe*[] cqes = new io_uring_cqe*[s_batchCQES];
+        io_uring_cqe*[] cqes = new io_uring_cqe*[s_reactorBatchCQES];
 
         const long WaitTimeoutNs = 1_000_000; // 1 ms
         __kernel_timespec ts; ts.tv_sec = 0; ts.tv_nsec = WaitTimeoutNs;
@@ -51,7 +51,7 @@ public sealed unsafe partial class RocketEngine {
                 if (rc is -62 or < 0) { reactor.Counter++; continue; }
 
                 int got;
-                fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.PRing, pC, (uint)s_batchCQES);
+                fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(reactor.PRing, pC, (uint)s_reactorBatchCQES);
                 
                 for (int i = 0; i < got; i++) {
                     cqe = cqes[i];
@@ -70,11 +70,11 @@ public sealed unsafe partial class RocketEngine {
                             // Return buffer to ring if kernel provided one.
                             if (hasBuffer) {
                                 ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_recvBufferSize;
+                                byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
                                 shim_buf_ring_add(
                                     reactor.BufferRing,
                                     addr,
-                                    (uint)s_recvBufferSize,
+                                    (uint)s_reactorRecvBufferSize,
                                     bufferId,
                                     (ushort)reactor.BufferRingMask,
                                     reactor.BufferRingIndex++);
@@ -95,7 +95,7 @@ public sealed unsafe partial class RocketEngine {
                             if (connections.TryGetValue(fd, out Connection? connection)) {
                                 connection.HasBuffer = hasBuffer;
                                 connection.BufferId = bufferId;
-                                connection.InPtr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_recvBufferSize;
+                                connection.InPtr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
                                 connection.InLength = res;
 
                                 // Wake consumer
@@ -110,11 +110,11 @@ public sealed unsafe partial class RocketEngine {
                                 // Defensive: if we got a recv for an fd we don't track,
                                 // return its buffer so we don't leak ring entries.
                                 if (hasBuffer) {
-                                    byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_recvBufferSize;
+                                    byte* addr = reactor.BufferRingSlab + (nuint)bufferId * (nuint)s_reactorRecvBufferSize;
                                     shim_buf_ring_add(
                                         reactor.BufferRing,
                                         addr,
-                                        (uint)s_recvBufferSize,
+                                        (uint)s_reactorRecvBufferSize,
                                         bufferId,
                                         (ushort)reactor.BufferRingMask,
                                         reactor.BufferRingIndex++);
@@ -170,7 +170,7 @@ public sealed unsafe partial class RocketEngine {
 
             // Free buffer ring BEFORE destroying the ring
             if (reactor.PRing != null && reactor.BufferRing != null) {
-                shim_free_buf_ring(reactor.PRing, reactor.BufferRing, (uint)s_bufferRingEntries, c_bufferRingGID);
+                shim_free_buf_ring(reactor.PRing, reactor.BufferRing, (uint)s_reactorBufferRingEntries, c_bufferRingGID);
                 reactor.BufferRing = null;
             }
 
