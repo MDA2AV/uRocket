@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Microsoft.Extensions.ObjectPool;
-using static Rocket.ABI;
+using static Rocket.ABI.ABI;
 
 // ReSharper disable always CheckNamespace
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
@@ -24,7 +24,8 @@ public sealed unsafe partial class RocketEngine {
     public class Reactor
     {
         public int Counter = 0;
-        public uint PRingFlags = IORING_SETUP_SQPOLL;
+        //TODO These must be configurable at the builder
+        public uint PRingFlags = 0;
         public int sqThreadCpu = -1;
         public uint sqThreadIdleMs = 100;
         
@@ -40,18 +41,8 @@ public sealed unsafe partial class RocketEngine {
 
         internal void InitPRing()
         {
-            //PRing = shim_create_ring((uint)s_ringEntries, out var err);
-            /*const uint flags = IORING_SETUP_SQPOLL;
-            // Pin SQPOLL thread to CPU 0 (for example) and let it idle 2000ms before sleeping.
-            int  sqThreadCpu     = ReactorId;
-            uint sqThreadIdleMs  = 2000;
-            PRing = shim_create_ring_ex((uint)s_ringEntries, flags, sqThreadCpu, sqThreadIdleMs, out int err);
-            */
-            
             PRing = CreatePRing(PRingFlags, sqThreadCpu, sqThreadIdleMs, out int err);
-            
             uint ringFlags = shim_get_ring_flags(PRing);
-            
             Console.WriteLine($"[w{ReactorId}] ring flags = 0x{ringFlags:x} " +
                               $"(SQPOLL={(ringFlags & IORING_SETUP_SQPOLL) != 0}, " +
                               $"SQ_AFF={(ringFlags & IORING_SETUP_SQ_AFF) != 0})");
@@ -59,22 +50,22 @@ public sealed unsafe partial class RocketEngine {
             
             // Setup buffer ring
             // TODO: Investigate this c_bufferRingGID
-            BufferRing = shim_setup_buf_ring(PRing, (uint)s_bufferRingEntries, c_bufferRingGID, 0, out var ret);
+            BufferRing = shim_setup_buf_ring(PRing, (uint)s_reactorBufferRingEntries, c_bufferRingGID, 0, out var ret);
             if (BufferRing == null || ret < 0) throw new Exception($"setup_buf_ring failed: ret={ret}");
 
-            BufferRingMask = (uint)(s_bufferRingEntries - 1);
-            nuint slabSize = (nuint)(s_bufferRingEntries * s_recvBufferSize);
+            BufferRingMask = (uint)(s_reactorBufferRingEntries - 1);
+            nuint slabSize = (nuint)(s_reactorBufferRingEntries * s_reactorRecvBufferSize);
             BufferRingSlab = (byte*)NativeMemory.AlignedAlloc(slabSize, 64);
 
-            for (ushort bid = 0; bid < s_bufferRingEntries; bid++) {
-                byte* addr = BufferRingSlab + (nuint)bid * (nuint)s_recvBufferSize;
-                shim_buf_ring_add(BufferRing, addr, (uint)s_recvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
+            for (ushort bid = 0; bid < s_reactorBufferRingEntries; bid++) {
+                byte* addr = BufferRingSlab + (nuint)bid * (nuint)s_reactorRecvBufferSize;
+                shim_buf_ring_add(BufferRing, addr, (uint)s_reactorRecvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
             }
-            shim_buf_ring_advance(BufferRing, (uint)s_bufferRingEntries);
+            shim_buf_ring_advance(BufferRing, (uint)s_reactorBufferRingEntries);
         }
 
         public void ReturnBufferRing(byte* addr, ushort bid) {
-            shim_buf_ring_add(BufferRing, addr, (uint)s_recvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
+            shim_buf_ring_add(BufferRing, addr, (uint)s_reactorRecvBufferSize, bid, (ushort)BufferRingMask, BufferRingIndex++);
             shim_buf_ring_advance(BufferRing, 1);
         }
     }

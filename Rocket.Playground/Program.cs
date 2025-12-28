@@ -12,7 +12,7 @@ internal static class Program {
     internal static async Task Main() {
         var builder = RocketEngine
             .CreateBuilder()
-            .ReactorQuant(() => Environment.ProcessorCount / 32)
+            .ReactorQuant(() => Environment.ProcessorCount)
             .Backlog(16 * 1024)
             .Port(8080)
             .RecvBufferSize(32 * 1024);

@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
-using static Rocket.ABI;
+using static Rocket.ABI.ABI;
 
 namespace Rocket.Engine;
 
@@ -11,26 +11,19 @@ namespace Rocket.Engine;
 public sealed unsafe partial class RocketEngine {
     public static void AcceptorLoop(string ip, ushort port, int reactorCount) {
         int lfd = CreateListen(ip, port);
-        io_uring* pring = null;
-        try {
-            //pring = shim_create_ring(256, out int err);
-            // SQPOLL
-            const uint flags = IORING_SETUP_SQPOLL;
-            // Pin SQPOLL thread to CPU 0 (for example) and let it idle 2000ms before sleeping.
-            int  sqThreadCpu     = 0;
-            uint sqThreadIdleMs  = 2000;
-            pring = shim_create_ring_ex(256, flags, sqThreadCpu, sqThreadIdleMs, out int err);
-            
-            uint ringFlags = shim_get_ring_flags(pring);
+        io_uring* acceptorPRing = null;
+        try {      
+            acceptorPRing = CreatePRing(s_acceptorFlags, s_acceptorSqThreadCpu, s_acceptorSqThreadIdleMs, out int err, s_acceptorRingEntries);
+            uint ringFlags = shim_get_ring_flags(acceptorPRing);
             Console.WriteLine($"[acceptor] ring flags = 0x{ringFlags:x} " +
                               $"(SQPOLL={(ringFlags & IORING_SETUP_SQPOLL) != 0}, " +
                               $"SQ_AFF={(ringFlags & IORING_SETUP_SQ_AFF) != 0})");
-            if (pring == null || err < 0) { Console.Error.WriteLine($"[acceptor] create_ring failed: {err}"); return; }
+            if (acceptorPRing == null || err < 0) { Console.Error.WriteLine($"[acceptor] create_ring failed: {err}"); return; }
             // Start multishot accept
-            io_uring_sqe* sqe = SqeGet(pring);
+            io_uring_sqe* sqe = SqeGet(acceptorPRing);
             shim_prep_multishot_accept(sqe, lfd, SOCK_NONBLOCK);
             shim_sqe_set_data64(sqe, PackUd(UdKind.Accept, lfd));
-            shim_submit(pring);
+            shim_submit(acceptorPRing);
             Console.WriteLine("[acceptor] Multishot accept armed");
             
             io_uring_cqe*[] cqes = new io_uring_cqe*[32];
@@ -41,11 +34,11 @@ public sealed unsafe partial class RocketEngine {
             while (!StopAll) {
                 int got;
                 fixed (io_uring_cqe** pC = cqes)
-                    got = shim_peek_batch_cqe(pring, pC, (uint)cqes.Length);
+                    got = shim_peek_batch_cqe(acceptorPRing, pC, (uint)cqes.Length);
 
                 if (got <= 0) {
                     io_uring_cqe* oneCqe = null;
-                    if (shim_wait_cqe(pring, &oneCqe) != 0) continue;
+                    if (shim_wait_cqe(acceptorPRing, &oneCqe) != 0) continue;
                     cqes[0] = oneCqe;
                     got = 1;
                 }
@@ -75,14 +68,14 @@ public sealed unsafe partial class RocketEngine {
                             
                         }else { Console.WriteLine($"[acceptor] Accept error: {res}"); }
                     }
-                    shim_cqe_seen(pring, cqe);
+                    shim_cqe_seen(acceptorPRing, cqe);
                 }
-                if (shim_sq_ready(pring) > 0) { Console.WriteLine("Submitting3"); shim_submit(pring); }
+                if (shim_sq_ready(acceptorPRing) > 0) { Console.WriteLine("Submitting3"); shim_submit(acceptorPRing); }
             }
         }finally {
             // close listener and ring even on exception/StopAll
             if (lfd >= 0) close(lfd);
-            if (pring != null) shim_destroy_ring(pring);
+            if (acceptorPRing != null) shim_destroy_ring(acceptorPRing);
             Console.WriteLine($"[acceptor] Shutdown complete.");
         }
     }
@@ -110,10 +103,10 @@ public sealed unsafe partial class RocketEngine {
         }
     }
 
-    private static io_uring* CreatePRing(uint flags, int sqThreadCpu, uint sqThreadIdleMs, out int err) {
+    private static io_uring* CreatePRing(uint flags, int sqThreadCpu, uint sqThreadIdleMs, out int err, uint? ringEntries = null) {
         if(flags == 0)
-            return shim_create_ring((uint)s_ringEntries, out err);
-        return shim_create_ring_ex((uint)s_ringEntries, flags, sqThreadCpu, sqThreadIdleMs, out err);
+            return shim_create_ring(ringEntries ?? (uint)s_reactorRingEntries, out err);
+        return shim_create_ring_ex((uint)s_reactorRingEntries, flags, sqThreadCpu, sqThreadIdleMs, out err);
     }
 
     // TODO: This seems to be causing Segmentation fault (core dumped) when sqe is null
