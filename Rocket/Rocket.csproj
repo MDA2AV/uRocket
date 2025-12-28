@@ -9,6 +9,7 @@
         <RootNamespace>Rocket</RootNamespace>
 
         <Title>Rocket</Title>
+        <PackageId>uRocket</PackageId>
         <Authors>Diogo Martins</Authors>
         <RepositoryUrl>https://github.com/MDA2AV/Rocket</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
