@@ -6,7 +6,7 @@ using URocket.Engine;
 
 // dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
 
-namespace Overdrive;
+namespace Playground;
 
 [SkipLocalsInit]
 internal static class Program {

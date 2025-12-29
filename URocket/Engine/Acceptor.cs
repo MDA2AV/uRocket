@@ -77,7 +77,7 @@ public sealed unsafe partial class Engine {
                 int one = 1;
                 Console.WriteLine($"[acceptor] Load balancing across {reactorCount} reactors");
 
-                while (!StopAll) {
+                while (_engine.ServerRunning) {
                     int got;
                     fixed (io_uring_cqe** pC = acceptor._cqes)
                         got = shim_peek_batch_cqe(acceptor._ring, pC, (uint)acceptor._cqes.Length);
