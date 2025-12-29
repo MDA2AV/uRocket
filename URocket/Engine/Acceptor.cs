@@ -112,7 +112,7 @@ public sealed unsafe partial class Engine {
                                     .SetFd(clientFd)
                                     .SetReactor(_engine.Reactors[targetReactor]);
                                 
-                                bool connectionAdded = ConnectionQueues.Writer.TryWrite(new ConnectionItem(targetReactor, clientFd));
+                                bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(targetReactor, clientFd));
                                 if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
                                 
                             }else { Console.WriteLine($"[acceptor] Accept error: {res}"); }
