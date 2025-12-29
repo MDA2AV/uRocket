@@ -2,7 +2,7 @@
 
 ## uRocket - uR(ing)(S)ocket
 
-uRocket is an experimental, low-level HTTP server built in C# on top of Linux **io_uring**. The goal of the project is not to abstract the system away, but to expose it: uRocket intentionally avoids “magic” layers and instead gives the developer direct control over sockets, buffers, queues, and scheduling. It is designed as a learning and benchmarking platform for understanding what modern Linux I/O can look like when combined with a managed runtime.
+uRocket is an experimental, low-level TCP server built in C# on top of Linux **io_uring**. The goal of the project is not to abstract the system away, but to expose it: uRocket intentionally avoids “magic” layers and instead gives the developer direct control over sockets, buffers, queues, and scheduling. It is designed as a learning and benchmarking platform for understanding what modern Linux I/O can look like when combined with a managed runtime.
 
 At a high level, uRocket follows a split architecture: a single **acceptor** thread is responsible for listening and accepting new TCP connections using `io_uring` multishot accept, while a configurable number of **reactor** threads handle all receive and send operations. Each reactor owns its own `io_uring` instance, its own buffer ring, and its own connection table. This ownership model avoids cross-thread contention and makes memory and lifetime rules explicit and predictable.
 
