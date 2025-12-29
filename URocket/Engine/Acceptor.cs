@@ -148,12 +148,6 @@ public sealed unsafe partial class Engine {
         return sqe;
     }
 
-    public static void SubmitSend(io_uring* pring, int fd, byte* buf, nuint off, nuint len) {
-        io_uring_sqe* sqe = SqeGet(pring);
-        shim_prep_send(sqe, fd, buf + off, (uint)(len - off), 0);
-        shim_sqe_set_data64(sqe, PackUd(UdKind.Send, fd));
-    }
-
     private static void ArmRecvMultishot(io_uring* pring, int fd, uint bgid) {
         io_uring_sqe* sqe = SqeGet(pring);
         shim_prep_recv_multishot_select(sqe, fd, bgid, 0);

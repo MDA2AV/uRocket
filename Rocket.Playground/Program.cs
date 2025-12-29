@@ -47,9 +47,8 @@ internal static class Program {
                     connection.OutPtr  = OK_PTR;
                     connection.OutHead = 0;
                     connection.OutTail = OK_LEN;
-
-                    // TODO: SubmitSend to reactor class?
-                    Engine.SubmitSend(
+                    
+                    reactor.SubmitSend(
                         reactor.Ring,
                         connection.Fd,
                         connection.OutPtr,
