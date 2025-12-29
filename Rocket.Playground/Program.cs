@@ -12,13 +12,8 @@ namespace Overdrive;
 internal static class Program {
     internal static async Task Main() {
         InitOk();
-        var builder = Engine
-            .CreateBuilder()
-            .ReactorQuant(() => Environment.ProcessorCount / 2)
-            .Backlog(16 * 1024)
-            .Port(8080);
+        var engine = new Engine();
         
-        var engine = builder.Build();
         _ = Task.Run(() => engine.Run());
 
         try {
@@ -55,6 +50,7 @@ internal static class Program {
                     connection.OutHead = 0;
                     connection.OutTail = OK_LEN;
 
+                    // TODO: SubmitSend to reactor class?
                     Engine.SubmitSend(
                         reactor.Ring,
                         connection.Fd,

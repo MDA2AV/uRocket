@@ -35,29 +35,29 @@ public sealed partial class Engine {
         
         // TODO This logic should be moved to the builder..
         // Create lock-free queues for fd distribution
-        ReactorQueues = new ConcurrentQueue<int>[s_nReactors];
-        ReactorConnectionCounts = new long[s_nReactors];
-        ReactorRequestCounts = new long[s_nReactors];
+        ReactorQueues = new ConcurrentQueue<int>[_nReactors];
+        ReactorConnectionCounts = new long[_nReactors];
+        ReactorRequestCounts = new long[_nReactors];
 
         // Init Acceptor
-        SingleAcceptor = new Acceptor();
+        SingleAcceptor = new Acceptor(this);
         SingleAcceptor.InitRing();
         
         // Init Reactors
-        Reactors = new Reactor[s_nReactors];
-        Connections = new Dictionary<int, Connection>[s_nReactors];
-        for (var i = 0; i < s_nReactors; i++) {
+        Reactors = new Reactor[_nReactors];
+        Connections = new Dictionary<int, Connection>[_nReactors];
+        for (var i = 0; i < _nReactors; i++) {
             ReactorQueues[i] = new ConcurrentQueue<int>();
             ReactorConnectionCounts[i] = 0;
             ReactorRequestCounts[i] = 0;
             
-            Reactors[i] = new Reactor(i);
+            Reactors[i] = new Reactor(i, this);
             Reactors[i].InitRing();
             Connections[i] = new Dictionary<int, Connection>(Reactors[i].Config.MaxConnectionsPerReactor);
         }
         
-        var reactorThreads = new Thread[s_nReactors];
-        for (int i = 0; i < s_nReactors; i++) {
+        var reactorThreads = new Thread[_nReactors];
+        for (int i = 0; i < _nReactors; i++) {
             int wi = i;
             reactorThreads[i] = new Thread(() => {
                     try { Reactors[wi].Handle(); }
@@ -67,9 +67,9 @@ public sealed partial class Engine {
             reactorThreads[i].Start();
         }
         
-        Console.WriteLine($"Server started with {s_nReactors} reactors + 1 acceptor");
+        Console.WriteLine($"Server started with {_nReactors} reactors + 1 acceptor");
         
-        try { AcceptorHandler(SingleAcceptor, s_nReactors); }
+        try { AcceptorHandler(SingleAcceptor, _nReactors); }
         catch (Exception ex) { Console.Error.WriteLine($"[acceptor] crash: {ex}"); }
         
         foreach (var t in reactorThreads) t.Join();

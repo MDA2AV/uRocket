@@ -20,7 +20,7 @@ public sealed unsafe partial class Engine {
     }
     
     public Reactor[] Reactors = null!;
-    public static Dictionary<int, Connection>[] Connections = null!;
+    public Dictionary<int, Connection>[] Connections = null!;
     
     public class Reactor {
         private int _counter = 0;
@@ -29,9 +29,15 @@ public sealed unsafe partial class Engine {
         private byte* _bufferRingSlab;
         private uint _bufferRingIndex = 0;
         private uint _bufferRingMask;
-        
-        public Reactor(int id, ReactorConfig config) { _id = id; Config = config; }
-        public Reactor(int id) : this(id, new ReactorConfig()) { }
+
+        private readonly Engine _engine;
+
+        public Reactor(int id, ReactorConfig config, Engine engine) {
+            _id = id; 
+            Config = config; 
+            _engine = engine;
+        }
+        public Reactor(int id, Engine engine) : this(id, new ReactorConfig(), engine) { }
         
         public ReactorConfig Config { get; }
         public io_uring* Ring { get; private set; }
@@ -64,7 +70,7 @@ public sealed unsafe partial class Engine {
         }
         
         internal void Handle() {
-            Dictionary<int,Connection> connections = Connections[_id];
+            Dictionary<int,Connection> connections = _engine.Connections[_id];
             ConcurrentQueue<int> myQueue = ReactorQueues[_id];     // new FDs from acceptor
             
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
@@ -131,9 +137,7 @@ public sealed unsafe partial class Engine {
                         shim_cqe_seen(Ring, cqe);
                     }
                 }
-            }
-            finally
-            {
+            } finally {
                 // Close any remaining connections
                 CloseAll(connections);
                 // Free buffer ring BEFORE destroying the ring
@@ -150,8 +154,8 @@ public sealed unsafe partial class Engine {
         }
         
         // Experimental
-        private unsafe void HandleSQPoll() {
-            Dictionary<int, Connection> connections = Connections[_id];
+        private void HandleSQPoll() {
+            Dictionary<int, Connection> connections = _engine.Connections[_id];
             ConcurrentQueue<int> myQueue = ReactorQueues[_id]; // new FDs from acceptor
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
 
