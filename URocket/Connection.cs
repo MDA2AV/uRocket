@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 
-namespace Rocket;
+namespace URocket;
 
 [SkipLocalsInit]
 public sealed unsafe class Connection : IValueTaskSource<bool>

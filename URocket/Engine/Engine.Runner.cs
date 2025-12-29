@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Threading.Channels;
 
-namespace Rocket.Engine;
+namespace URocket.Engine;
 
 // ReSharper disable always CheckNamespace
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
@@ -34,23 +34,27 @@ public sealed partial class RocketEngine {
         Console.CancelKeyPress += (_, __) => StopAll = true;
         InitOk();
 
+        // TODO This logic should be moved to the builder..
         // Create lock-free queues for fd distribution
         ReactorQueues = new ConcurrentQueue<int>[s_nReactors];
         ReactorConnectionCounts = new long[s_nReactors];
         ReactorRequestCounts = new long[s_nReactors];
+
+        // Init Acceptor
+        SingleAcceptor = new Acceptor();
+        SingleAcceptor.InitRing();
         
+        // Init Reactors
         s_Reactors = new Reactor[s_nReactors];
         Connections = new Dictionary<int, Connection>[s_nReactors];
-        
         for (var i = 0; i < s_nReactors; i++) {
             ReactorQueues[i] = new ConcurrentQueue<int>();
             ReactorConnectionCounts[i] = 0;
             ReactorRequestCounts[i] = 0;
             
-            Connections[i] = new Dictionary<int, Connection>(s_maxConnectionsPerReactor);
-            
             s_Reactors[i] = new Reactor(i);
-            s_Reactors[i].InitPRing();
+            s_Reactors[i].InitRing();
+            Connections[i] = new Dictionary<int, Connection>(s_Reactors[i].Config.MaxConnectionsPerReactor);
         }
         
         var reactorThreads = new Thread[s_nReactors];
@@ -66,7 +70,7 @@ public sealed partial class RocketEngine {
         
         Console.WriteLine($"Server started with {s_nReactors} reactors + 1 acceptor");
         
-        try { AcceptorLoop(c_ip, s_port, s_nReactors); }
+        try { AcceptorHandler(SingleAcceptor, s_nReactors); }
         catch (Exception ex) { Console.Error.WriteLine($"[acceptor] crash: {ex}"); }
         
         foreach (var t in reactorThreads) t.Join();
