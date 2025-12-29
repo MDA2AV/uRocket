@@ -1,5 +1,3 @@
-using System.Runtime.InteropServices;
-using System.Text;
 using static URocket.ABI.ABI;
 
 // ReSharper disable always CheckNamespace
@@ -8,8 +6,8 @@ using static URocket.ABI.ABI;
 
 namespace URocket.Engine;
 
-public sealed unsafe partial class RocketEngine {
-    public static void AcceptorHandler(Acceptor acceptor, int reactorCount) {
+public sealed unsafe partial class Engine {
+    public void AcceptorHandler(Acceptor acceptor, int reactorCount) {
         try {
             int nextReactor = 0;
             int one = 1;
@@ -41,11 +39,17 @@ public sealed unsafe partial class RocketEngine {
                             setsockopt(clientFd, IPPROTO_TCP, TCP_NODELAY, &one, (uint)sizeof(int));
 
                             // Round-robin to next reactor
+                            // TODO: This is naive, not all connections are the same,
+                            // TODO: should balance considering each connection's weight
+                            // TODO: Allow user to inject balancing logic and provide multiple algorithms he can choose from
                             int targetReactor = nextReactor;
                             nextReactor = (nextReactor + 1) % reactorCount;
 
                             ReactorQueues[targetReactor].Enqueue(clientFd);
-                            Connections[targetReactor][clientFd] = ConnectionPool.Get().SetFd(clientFd).SetReactorId(targetReactor);
+                            Connections[targetReactor][clientFd] = ConnectionPool.Get()
+                                .SetFd(clientFd)
+                                .SetReactorId(targetReactor)
+                                .SetReactor(Reactors[targetReactor]);
                             
                             bool connectionAdded = ConnectionQueues.Writer.TryWrite(new ConnectionItem(targetReactor, clientFd));
                             if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
@@ -57,15 +61,11 @@ public sealed unsafe partial class RocketEngine {
                 if (shim_sq_ready(acceptor.Ring) > 0) { Console.WriteLine("Submitting3"); shim_submit(acceptor.Ring); }
             }
         }
-        finally
-        {
+        finally {
             // close listener and ring even on exception/StopAll
             if (acceptor.ListenFd >= 0) close(acceptor.ListenFd);
             if (acceptor.Ring != null) shim_destroy_ring(acceptor.Ring);
             Console.WriteLine($"[acceptor] Shutdown complete.");
         }
     }
-    
-    // io_uring completion flags
-    private const uint IORING_CQE_F_MORE = (1U << 1);
 }

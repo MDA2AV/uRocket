@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 using System.Text;
 using URocket;
-using RocketEngine = URocket.Engine.RocketEngine;
+using URocket.Engine;
 
 // dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
 
@@ -12,7 +12,7 @@ namespace Overdrive;
 internal static class Program {
     internal static async Task Main() {
         InitOk();
-        var builder = RocketEngine
+        var builder = Engine
             .CreateBuilder()
             .ReactorQuant(() => Environment.ProcessorCount / 2)
             .Backlog(16 * 1024)
@@ -36,6 +36,7 @@ internal static class Program {
     
     private static async ValueTask HandleAsync(Connection connection) {
         try {
+            var reactor = connection.Reactor;
             while (true) {
                 await connection.ReadAsync();
                 unsafe {
@@ -45,8 +46,7 @@ internal static class Program {
                 
                 unsafe {
                     if (connection.HasBuffer) {
-                        var worker = RocketEngine.s_Reactors[connection.ReactorId];
-                        worker.ReturnBufferRing(connection.InPtr, connection.BufferId);
+                        reactor.ReturnBufferRing(connection.InPtr, connection.BufferId);
                     }
                 }
                 connection.ResetRead();
@@ -55,8 +55,8 @@ internal static class Program {
                     connection.OutHead = 0;
                     connection.OutTail = OK_LEN;
 
-                    RocketEngine.SubmitSend(
-                        RocketEngine.s_Reactors[connection.ReactorId].Ring,
+                    Engine.SubmitSend(
+                        reactor.Ring,
                         connection.Fd,
                         connection.OutPtr,
                         connection.OutHead,

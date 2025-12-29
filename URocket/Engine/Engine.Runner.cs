@@ -7,7 +7,7 @@ namespace URocket.Engine;
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
 // (var is avoided intentionally in this project so that concrete types are visible at call sites.)
 
-public sealed partial class RocketEngine {
+public sealed partial class Engine {
     private static volatile bool StopAll = false;
     // Lock-free queues for passing accepted fds to reactors
     private static ConcurrentQueue<int>[] ReactorQueues = null!;
@@ -44,23 +44,23 @@ public sealed partial class RocketEngine {
         SingleAcceptor.InitRing();
         
         // Init Reactors
-        s_Reactors = new Reactor[s_nReactors];
+        Reactors = new Reactor[s_nReactors];
         Connections = new Dictionary<int, Connection>[s_nReactors];
         for (var i = 0; i < s_nReactors; i++) {
             ReactorQueues[i] = new ConcurrentQueue<int>();
             ReactorConnectionCounts[i] = 0;
             ReactorRequestCounts[i] = 0;
             
-            s_Reactors[i] = new Reactor(i);
-            s_Reactors[i].InitRing();
-            Connections[i] = new Dictionary<int, Connection>(s_Reactors[i].Config.MaxConnectionsPerReactor);
+            Reactors[i] = new Reactor(i);
+            Reactors[i].InitRing();
+            Connections[i] = new Dictionary<int, Connection>(Reactors[i].Config.MaxConnectionsPerReactor);
         }
         
         var reactorThreads = new Thread[s_nReactors];
         for (int i = 0; i < s_nReactors; i++) {
             int wi = i;
             reactorThreads[i] = new Thread(() => {
-                    try { ReactorHandler(wi); }
+                    try { Reactors[wi].Handle(); }
                     catch (Exception ex) { Console.Error.WriteLine($"[w{wi}] crash: {ex}"); }
                 })
                 { IsBackground = true, Name = $"uring-w{wi}" };

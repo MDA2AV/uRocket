@@ -221,9 +221,9 @@ public static unsafe partial class ABI{
     /// </summary>
     internal static int UdFdOf(ulong ud) => (int)(ud & 0xffffffff);
     
-    
-    
     internal const uint IORING_SETUP_IOPOLL  = 1u << 0;
     internal const uint IORING_SETUP_SQPOLL  = 1u << 1;
     internal const uint IORING_SETUP_SQ_AFF  = 1u << 2;
+    
+    internal const uint IORING_CQE_F_MORE = (1U << 1);
 }

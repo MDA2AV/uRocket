@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
+using URocket.Engine;
 
 namespace URocket;
 
@@ -11,6 +12,7 @@ public sealed unsafe class Connection : IValueTaskSource<bool>
 
     public int Fd;
     public int ReactorId;
+    public Engine.Engine.Reactor Reactor;
 
     // In buffer (points into reactor's buffer-ring slab)
     public byte* InPtr;
@@ -83,6 +85,7 @@ public sealed unsafe class Connection : IValueTaskSource<bool>
     // Setters for pooled connections
     public Connection SetFd(int fd) { Fd = fd; return this; }
     public Connection SetReactorId(int reactorId) { ReactorId = reactorId; return this; }
+    public Connection SetReactor(Engine.Engine.Reactor reactor) { Reactor = reactor; return this; }
     
     // IValueTaskSource<bool> plumbing
     bool IValueTaskSource<bool>.GetResult(short token) => _readSignal.GetResult(token);

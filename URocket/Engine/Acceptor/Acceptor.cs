@@ -8,7 +8,7 @@ using static URocket.ABI.ABI;
 
 namespace URocket.Engine;
 
-public sealed unsafe partial class RocketEngine {
+public sealed unsafe partial class Engine {
     public Acceptor SingleAcceptor { get; set; } = null!;
     public class Acceptor {
         private io_uring_sqe* _sqe;

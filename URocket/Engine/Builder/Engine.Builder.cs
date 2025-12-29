@@ -4,7 +4,7 @@
 
 namespace URocket.Engine;
 
-public sealed partial class RocketEngine {
+public sealed partial class Engine {
     private const int c_bufferRingGID = 1;
     
     // Socket
@@ -18,9 +18,9 @@ public sealed partial class RocketEngine {
     
     public static RocketBuilder CreateBuilder() => new RocketBuilder();
     public sealed class RocketBuilder {
-        private readonly RocketEngine _engine;
-        public RocketBuilder() => _engine = new RocketEngine();
-        public RocketEngine Build() { s_nReactors = s_calculateNumberReactors?.Invoke() ?? Environment.ProcessorCount / 2; return _engine; }
+        private readonly Engine _engine;
+        public RocketBuilder() => _engine = new Engine();
+        public Engine Build() { s_nReactors = s_calculateNumberReactors?.Invoke() ?? Environment.ProcessorCount / 2; return _engine; }
         public RocketBuilder Backlog(int backlog) { s_backlog = backlog; return this; }
         public RocketBuilder Port(ushort port) { s_port = port; return this; }
         public RocketBuilder ReactorQuant(Func<int>? calculateNumberReactors) { s_calculateNumberReactors = calculateNumberReactors; return this; }
