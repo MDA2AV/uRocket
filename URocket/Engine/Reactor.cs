@@ -77,7 +77,7 @@ public sealed unsafe partial class Engine {
             const long WaitTimeoutNs = 1_000_000; // 1 ms
 
             try {
-                while (!StopAll) {
+                while (_engine.ServerRunning) {
                     while (reactorQueue.TryDequeue(out int newFd)) { ArmRecvMultishot(Ring, newFd, c_bufferRingGID); }
                     if (shim_sq_ready(Ring) > 0) shim_submit(Ring);
                     io_uring_cqe* cqe; __kernel_timespec ts; ts.tv_sec  = 0; ts.tv_nsec = WaitTimeoutNs; // 1 ms timeout
@@ -167,7 +167,7 @@ public sealed unsafe partial class Engine {
             bool isSqPoll = (ringSetupFlags & IORING_SETUP_SQPOLL) != 0;
 
             try {
-                while (!StopAll) {
+                while (_engine.ServerRunning) {
                     // Track whether we queued any SQEs this iteration.
                     bool queuedSqe = false;
 

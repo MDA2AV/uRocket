@@ -8,10 +8,10 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
         <ServerGarbageCollection>true</ServerGarbageCollection>
-        
         <TieredPGO>true</TieredPGO>
         <SelfContained>true</SelfContained>
-        <RootNamespace>Overdrive</RootNamespace>
+        
+        <RootNamespace>Playground</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup Condition="$(PublishAot) == 'true'">

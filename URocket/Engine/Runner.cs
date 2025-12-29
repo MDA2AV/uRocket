@@ -8,9 +8,10 @@ namespace URocket.Engine;
 // (var is avoided intentionally in this project so that concrete types are visible at call sites.)
 
 public sealed partial class Engine {
-    private static volatile bool StopAll = false;
+    public bool ServerRunning { get; private set; }
+
     // Lock-free queues for passing accepted fds to reactors
-    private static ConcurrentQueue<int>[] ReactorQueues = null!; // TODO: Use Channel?
+    private static ConcurrentQueue<int>[] ReactorQueues = null!; // TODO: Use Channels?
     // Stats tracking
     private static long[] ReactorConnectionCounts = null!;
     private static long[] ReactorRequestCounts = null!;
@@ -31,9 +32,9 @@ public sealed partial class Engine {
         return Connections[item.ReactorId][item.ClientFd];
     }
     public void Run() {
-        Console.CancelKeyPress += (_, __) => StopAll = true;
+        ServerRunning = true;
         // Init Acceptor
-        SingleAcceptor = new Acceptor(this);
+        SingleAcceptor = new Acceptor(this); // TODO: How to pass a config
         SingleAcceptor.InitRing();
         
         // Init Reactors
@@ -44,7 +45,7 @@ public sealed partial class Engine {
             ReactorConnectionCounts[i] = 0;
             ReactorRequestCounts[i] = 0;
             
-            Reactors[i] = new Reactor(i, this);
+            Reactors[i] = new Reactor(i, this); // TODO: How to pass a config
             Reactors[i].InitRing();
             Connections[i] = new Dictionary<int, Connection>(Reactors[i].Config.MaxConnectionsPerReactor);
         }
@@ -67,4 +68,6 @@ public sealed partial class Engine {
         
         foreach (var t in reactorThreads) t.Join();
     }
+    
+    public void Stop() => ServerRunning = false;
 }
