@@ -71,15 +71,14 @@ public sealed unsafe partial class Engine {
         
         internal void Handle() {
             Dictionary<int,Connection> connections = _engine.Connections[_id];
-            ConcurrentQueue<int> myQueue = ReactorQueues[_id];     // new FDs from acceptor
+            ConcurrentQueue<int> reactorQueue = ReactorQueues[_id];     // new FDs from acceptor
             
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
             const long WaitTimeoutNs = 1_000_000; // 1 ms
 
             try {
                 while (!StopAll) {
-                    // TODO: Move multishot to the Reactor logic?
-                    while (myQueue.TryDequeue(out int newFd)) { ArmRecvMultishot(Ring, newFd, c_bufferRingGID); }
+                    while (reactorQueue.TryDequeue(out int newFd)) { ArmRecvMultishot(Ring, newFd, c_bufferRingGID); }
                     if (shim_sq_ready(Ring) > 0) shim_submit(Ring);
                     io_uring_cqe* cqe; __kernel_timespec ts; ts.tv_sec  = 0; ts.tv_nsec = WaitTimeoutNs; // 1 ms timeout
                     int rc = shim_wait_cqes(Ring, &cqe, (uint)1, &ts); int got;

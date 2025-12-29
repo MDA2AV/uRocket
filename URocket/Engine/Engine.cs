@@ -2,6 +2,8 @@
 // ReSharper disable always SuggestVarOrType_BuiltInTypes
 // (var is avoided intentionally in this project so that concrete types are visible at call sites.)
 
+using System.Collections.Concurrent;
+
 namespace URocket.Engine;
 
 public sealed partial class Engine {
@@ -18,5 +20,9 @@ public sealed partial class Engine {
     
     public Engine() {
         _nReactors = 16;
+
+        ReactorQueues = new ConcurrentQueue<int>[_nReactors];
+        ReactorConnectionCounts = new long[_nReactors];
+        ReactorRequestCounts = new long[_nReactors];
     }
 }

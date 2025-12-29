@@ -10,7 +10,7 @@ namespace URocket.Engine;
 public sealed partial class Engine {
     private static volatile bool StopAll = false;
     // Lock-free queues for passing accepted fds to reactors
-    private static ConcurrentQueue<int>[] ReactorQueues = null!;
+    private static ConcurrentQueue<int>[] ReactorQueues = null!; // TODO: Use Channel?
     // Stats tracking
     private static long[] ReactorConnectionCounts = null!;
     private static long[] ReactorRequestCounts = null!;
@@ -32,13 +32,6 @@ public sealed partial class Engine {
     }
     public void Run() {
         Console.CancelKeyPress += (_, __) => StopAll = true;
-        
-        // TODO This logic should be moved to the builder..
-        // Create lock-free queues for fd distribution
-        ReactorQueues = new ConcurrentQueue<int>[_nReactors];
-        ReactorConnectionCounts = new long[_nReactors];
-        ReactorRequestCounts = new long[_nReactors];
-
         // Init Acceptor
         SingleAcceptor = new Acceptor(this);
         SingleAcceptor.InitRing();
