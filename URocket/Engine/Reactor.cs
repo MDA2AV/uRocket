@@ -27,7 +27,7 @@ public sealed unsafe partial class Engine {
     
     public class Reactor {
         private int _counter;
-        public int RingCounter;
+        private int _ringCounter;
         private io_uring_buf_ring* _bufferRing;
         private byte* _bufferRingSlab;
         private uint _bufferRingIndex;
@@ -68,17 +68,12 @@ public sealed unsafe partial class Engine {
         }
 
         private void ReturnBufferRing(byte* addr, ushort bid) {
-            RingCounter++;
+            _ringCounter++;
             shim_buf_ring_add(_bufferRing, addr, (uint)Config.RecvBufferSize, bid, (ushort)_bufferRingMask, _bufferRingIndex++);
             shim_buf_ring_advance(_bufferRing, 1);
         }
         
-        //private readonly ConcurrentQueue<ushort> _returns = new();
-        //public void EnqueueReturn(ushort bid) => _returns.Enqueue(bid);
-        //[MethodImpl(MethodImplOptions.AggressiveInlining)]
-        //public void EnqueueReturnQ2(ushort bid) => _returnQ.EnqueueSpin(bid);
-        
-        private readonly MpscUshortQueue _returnQ = new(1 << 16); // 65536 slots (pick a power-of-two)
+        private readonly MpscUshortQueue _returnQ = new(1 << 16); // 65536 slots (power-of-two)
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public void EnqueueReturnQ(ushort bid) {
             if (!_returnQ.TryEnqueue(bid)) {
@@ -98,8 +93,6 @@ public sealed unsafe partial class Engine {
             while (_returnQ.TryDequeue(out ushort bid)) {
                 byte* addr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
                 ReturnBufferRing(addr, bid);
-                //shim_buf_ring_add(_bufferRing, addr, (uint)Config.RecvBufferSize, bid, (ushort)_bufferRingMask, _bufferRingIndex++);
-                //shim_buf_ring_advance(_bufferRing, 1);
             }
         }
         
@@ -120,9 +113,7 @@ public sealed unsafe partial class Engine {
                         bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(Id, newFd));
                         if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
                     }
-                    
                     DrainReturnQ(); // Drain rings returns
-                    
                     if (shim_sq_ready(Ring) > 0) shim_submit(Ring);
                     
                     io_uring_cqe* cqe; __kernel_timespec ts; ts.tv_sec  = 0; ts.tv_nsec = Config.CqTimeout; // 1 ms timeout
@@ -230,7 +221,7 @@ public sealed unsafe partial class Engine {
         
         private void CloseAll(Dictionary<int, Connection> connections) {
             Console.WriteLine($"Reactor[{Id}] Connection leakage -- [{connections.Count}] " +
-                              $"Ring leakage -- [{RingCounter + Config.BufferRingEntries - _bufferRingIndex}]");
+                              $"Ring leakage -- [{_ringCounter + Config.BufferRingEntries - _bufferRingIndex}]");
             
             foreach (var kv in connections) {
                 var conn = kv.Value;

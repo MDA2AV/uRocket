@@ -7,9 +7,6 @@ namespace Playground;
 
 public class HttpResponse
 {
-    // TODO : Check bug - run wrk pipeline with InitOK (only 1 response flushed) and then run wrk pipeline again
-    // TODO : Possibly related with Clear()
-    
     internal static async ValueTask HandleAsync(Connection connection) {
         try {
             var reactor = connection.Reactor;
