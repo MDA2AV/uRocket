@@ -61,7 +61,7 @@ public sealed partial class Engine {
     }
     
     public Engine() {
-        NReactors = 4;
+        NReactors = 12;
         ReactorQueues = new ConcurrentQueue<int>[NReactors];
         ReactorConnectionCounts = new long[NReactors];
         ReactorRequestCounts = new long[NReactors];

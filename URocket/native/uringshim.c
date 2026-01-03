@@ -332,7 +332,111 @@ int shim_wait_cqe_timeout_in(struct io_uring* ring,
     return io_uring_wait_cqe_timeout(ring, cqe, &ts);
 }
 
-void shim_prep_cancel64(struct io_uring_sqe* sqe, unsigned long long user_data, int flags)
+/**
+ * Prepares a cancel SQE that targets a previously submitted request
+ * identified by its 64-bit user-data value.
+ *
+ * This is typically used to cancel in-flight multishot operations
+ * (e.g., recv multishot) when a connection is closed.
+ *
+ * @param sqe        The SQE to initialize.
+ * @param user_data  The 64-bit user-data value of the request to cancel.
+ * @param flags      Cancel flags (usually 0).
+ */
+void shim_prep_cancel64(struct io_uring_sqe* sqe,
+                        unsigned long long user_data,
+                        int flags)
 {
     io_uring_prep_cancel64(sqe, user_data, flags);
 }
+
+/**
+ * Submits all currently queued SQEs to the kernel and then blocks
+ * until at least 'wait_nr' CQEs are available.
+ *
+ * This is equivalent to a combined submit + wait operation and
+ * results in a single io_uring_enter() syscall.
+ *
+ * Using this instead of separate submit() and wait() calls
+ * significantly reduces kernel crossings and system CPU usage
+ * in high-throughput loops.
+ *
+ * @param ring     The io_uring instance.
+ * @param wait_nr  Minimum number of CQEs to wait for (>= 1).
+ *
+ * @return Number of SQEs submitted on success, or -errno on error.
+ */
+int shim_submit_and_wait(struct io_uring* ring, unsigned wait_nr)
+{
+    return io_uring_submit_and_wait(ring, wait_nr);
+}
+
+/**
+ * Advances the completion queue head by 'count' entries, marking
+ * the previously peeked CQEs as consumed.
+ *
+ * This should be used together with io_uring_peek_batch_cqe()
+ * to acknowledge multiple CQEs at once instead of calling
+ * io_uring_cqe_seen() for each individual CQE.
+ *
+ * @param ring   The io_uring instance.
+ * @param count  Number of CQEs to mark as seen.
+ */
+void shim_cq_advance(struct io_uring* ring, unsigned count)
+{
+    io_uring_cq_advance(ring, count);
+}
+
+/**
+ * Returns the number of completion queue entries (CQEs) that are
+ * currently available to be consumed.
+ *
+ * This is a non-blocking, userspace-only check and can be used
+ * to avoid unnecessary submit-and-wait calls when CQEs are
+ * already present.
+ *
+ * @param ring  The io_uring instance.
+ *
+ * @return Number of ready CQEs in the completion queue.
+ */
+unsigned shim_cq_ready(struct io_uring* ring)
+{
+    return io_uring_cq_ready(ring);
+}
+
+// -----------------------------------------------------------------------------
+// Drive the io_uring with a single kernel entry.
+//
+// We intentionally use shim_submit_and_wait() instead of calling
+//   shim_submit() + shim_wait_cqes()
+// because the latter results in TWO io_uring_enter() syscalls per loop.
+//
+// submit_and_wait() performs:
+//   1) submission of any pending SQEs, AND
+//   2) blocking until at least one CQE is available
+// in a *single* io_uring_enter() syscall.
+//
+// This significantly reduces system CPU usage in high-throughput reactor loops,
+// especially when CQEs arrive frequently.
+//
+// NOTE:
+// - Unlike shim_wait_cqes(), submit_and_wait() has no timeout.
+// - The reactor will block here until at least one CQE is produced.
+// - If periodic wakeups are required, a direct io_uring_enter() wrapper
+//   with a timespec should be used instead.
+// -----------------------------------------------------------------------------
+int shim_enter(struct io_uring* ring,
+               unsigned to_submit,
+               unsigned min_complete,
+               unsigned flags,
+               struct __kernel_timespec* ts)
+{
+    return (int)syscall(__NR_io_uring_enter,
+                        ring->ring_fd,
+                        to_submit,
+                        min_complete,
+                        flags,
+                        ts,
+                        sizeof(*ts));
+}
+

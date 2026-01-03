@@ -106,6 +106,123 @@ public static unsafe partial class ABI{
     /// </summary>
     [DllImport("uringshim")] internal static extern uint shim_sq_ready(io_uring* ring);
     // ------------------------------------------------------------------------------------
+    //  SHIM: QUEUE OPS (ADVANCED / HIGH-PERF)
+    // ------------------------------------------------------------------------------------
+    /// <summary>
+    /// Submits all currently queued SQEs to the kernel and then blocks
+    /// until at least <paramref name="waitNr"/> CQEs are available.
+    ///
+    /// <para>
+    /// This is equivalent to a combined <c>submit + wait</c> operation and
+    /// results in a <b>single</b> <c>io_uring_enter()</c> syscall.
+    /// </para>
+    ///
+    /// <para>
+    /// Using this instead of separate <see cref="shim_submit"/> and
+    /// <see cref="shim_wait_cqes"/> calls significantly reduces kernel
+    /// crossings and system CPU usage in tight reactor loops.
+    /// </para>
+    /// </summary>
+    /// <param name="ring">The io_uring instance.</param>
+    /// <param name="waitNr">
+    /// Minimum number of CQEs to wait for (must be &gt;= 1).
+    /// A value of 1 is ideal for low-latency reactors.
+    /// </param>
+    /// <returns>
+    /// Number of SQEs submitted on success, or <c>-errno</c> on error.
+    /// </returns>
+    [DllImport("uringshim")]
+    internal static extern int shim_submit_and_wait(io_uring* ring, uint waitNr);
+    /// <summary>
+    /// Performs a direct <c>io_uring_enter(2)</c> syscall on the given ring.
+    ///
+    /// <para>
+    /// This is the lowest-level way to drive an io_uring instance and allows
+    /// submitting SQEs and waiting for CQEs in a <b>single</b> kernel entry,
+    /// optionally with a timeout.
+    /// </para>
+    ///
+    /// <para>
+    /// This wrapper is primarily intended for high-performance reactor loops
+    /// that need precise control over:
+    /// <list type="bullet">
+    /// <item><description>how many SQEs to submit</description></item>
+    /// <item><description>how many CQEs to wait for</description></item>
+    /// <item><description>whether to block and for how long</description></item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// Most code should prefer <see cref="shim_submit_and_wait"/> for simplicity.
+    /// Use this method only when a timeout or custom flags are required.
+    /// </para>
+    /// </summary>
+    /// <param name="ring">The io_uring instance.</param>
+    /// <param name="toSubmit">
+    /// Number of SQEs to submit from the submission queue.
+    /// Typically obtained via <see cref="shim_sq_ready"/>.
+    /// </param>
+    /// <param name="minComplete">
+    /// Minimum number of CQEs to wait for before returning.
+    /// Use <c>1</c> for event-driven reactors.
+    /// </param>
+    /// <param name="flags">
+    /// Flags passed directly to <c>io_uring_enter</c>, e.g.
+    /// <c>IORING_ENTER_GETEVENTS</c>.
+    /// </param>
+    /// <param name="ts">
+    /// Optional timeout (kernel timespec).
+    /// Pass <c>null</c> for infinite wait.
+    /// </param>
+    /// <returns>
+    /// On success, returns the number of submitted SQEs.
+    /// On failure, returns <c>-errno</c> (e.g., <c>-EINTR</c>, <c>-ETIME</c>).
+    /// </returns>
+    [DllImport("uringshim")]
+    internal static extern int shim_enter(
+        io_uring* ring,
+        uint toSubmit,
+        uint minComplete,
+        uint flags,
+        __kernel_timespec* ts);
+    /// <summary>
+    /// Advances the completion queue head by <paramref name="count"/> entries,
+    /// marking the previously peeked CQEs as consumed.
+    ///
+    /// <para>
+    /// This should be used together with <see cref="shim_peek_batch_cqe"/> to
+    /// acknowledge multiple CQEs at once instead of calling
+    /// <see cref="shim_cqe_seen"/> for each individual CQE.
+    /// </para>
+    ///
+    /// <para>
+    /// Advancing the CQ head in bulk reduces cacheline contention and lowers
+    /// per-CQE overhead in high-throughput workloads.
+    /// </para>
+    /// </summary>
+    /// <param name="ring">The io_uring instance.</param>
+    /// <param name="count">Number of CQEs to mark as seen.</param>
+    [DllImport("uringshim")]
+    internal static extern void shim_cq_advance(io_uring* ring, uint count);
+    /// <summary>
+    /// Returns the number of completion queue entries (CQEs) that are
+    /// currently available to be consumed.
+    ///
+    /// <para>
+    /// This is a non-blocking, userspace-only check and does <b>not</b>
+    /// enter the kernel.
+    /// </para>
+    ///
+    /// <para>
+    /// Typically used to avoid unnecessary <see cref="shim_submit_and_wait"/>
+    /// calls when CQEs are already present.
+    /// </para>
+    /// </summary>
+    /// <param name="ring">The io_uring instance.</param>
+    /// <returns>Number of ready CQEs in the completion queue.</returns>
+    [DllImport("uringshim")]
+    internal static extern uint shim_cq_ready(io_uring* ring);
+    // ------------------------------------------------------------------------------------
     //  SHIM: PREP OPS (SQE FILLERS)
     // ------------------------------------------------------------------------------------
     /// <summary>
@@ -227,8 +344,7 @@ public static unsafe partial class ABI{
     internal const uint IORING_SETUP_IOPOLL  = 1u << 0;
     internal const uint IORING_SETUP_SQPOLL  = 1u << 1;
     internal const uint IORING_SETUP_SQ_AFF  = 1u << 2;
-    
     internal const uint IORING_CQE_F_MORE = (1U << 1);
-    
     internal const int IORING_ASYNC_CANCEL_ALL = 1 << 0; // commonly this value
+    internal const uint IORING_ENTER_GETEVENTS = 1u << 0;
 }
