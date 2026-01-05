@@ -80,7 +80,6 @@ public sealed partial class Engine {
         ServerRunning = true;
         // Init Acceptor
         SingleAcceptor = new Acceptor(this); // TODO: How to pass a config
-        SingleAcceptor.InitRing();
         
         // Init Reactors
         Reactors = new Reactor[NReactors];
@@ -91,7 +90,7 @@ public sealed partial class Engine {
             ReactorRequestCounts[i] = 0;
             
             Reactors[i] = new Reactor(i,this); // TODO: How to pass a config
-            Reactors[i].InitRing();
+            //Reactors[i].InitRing();
             Connections[i] = new Dictionary<int, Connection>(Reactors[i].Config.MaxConnectionsPerReactor);
         }
         
@@ -99,15 +98,15 @@ public sealed partial class Engine {
         for (int i = 0; i < NReactors; i++) {
             int wi = i;
             reactorThreads[i] = new Thread(() => {
-                try { Reactors[wi].Handle(); }
-                catch (Exception ex) { Console.Error.WriteLine($"[w{wi}] crash: {ex}"); }
-            })
+                    try { Reactors[wi].InitRing(); Reactors[wi].HandleSubmitAndWaitSingleCall();
+                    }catch (Exception ex) { Console.Error.WriteLine($"[w{wi}] crash: {ex}"); }
+                })
             { IsBackground = true, Name = $"uring-w{wi}" };
             reactorThreads[i].Start();
         }
 
         var acceptorThread = new Thread(() => {
-            try { SingleAcceptor.Handle(SingleAcceptor, NReactors); }
+            try { SingleAcceptor.InitRing(); SingleAcceptor.Handle(SingleAcceptor, NReactors); }
             catch (Exception ex) { Console.Error.WriteLine($"[acceptor] crash: {ex}"); }
         });
         acceptorThread.Start();

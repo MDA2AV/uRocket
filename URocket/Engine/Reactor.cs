@@ -47,6 +47,11 @@ public sealed unsafe partial class Engine {
 
         public void InitRing() {
             Ring = CreateRing(Config.RingFlags, Config.SqCpuThread, Config.SqThreadIdleMs, out int err, Config.RingEntries);
+            if (Ring == null || err != 0) {
+                Console.WriteLine($"create_ring failed: {err}");
+                return; // or throw; but do NOT continue using ring
+            }
+
             uint ringFlags = shim_get_ring_flags(Ring);
             Console.WriteLine($"[w{Id}] ring flags = 0x{ringFlags:x} " +
                               $"(SQPOLL={(ringFlags & IORING_SETUP_SQPOLL) != 0}, " +
@@ -106,19 +111,17 @@ public sealed unsafe partial class Engine {
             return count;
         }
         
-        internal void Handle()
+        internal void HandleSubmitAndWaitSingleCall()
         {
             Dictionary<int, Connection> connections = _engine.Connections[Id];
             ConcurrentQueue<int> reactorQueue = ReactorQueues[Id];
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
 
-            try
-            {
-                while (_engine.ServerRunning)
-                {
+            try {
+                io_uring_cqe* cqe;
+                while (_engine.ServerRunning) {
                     // Drain new connections
-                    while (reactorQueue.TryDequeue(out int newFd))
-                    {
+                    while (reactorQueue.TryDequeue(out int newFd)) {
                         connections[newFd] = _engine.ConnectionPool.Get()
                             .SetFd(newFd)
                             .SetReactor(_engine.Reactors[Id]);
@@ -144,42 +147,47 @@ public sealed unsafe partial class Engine {
                     int got;
                     fixed (io_uring_cqe** pC = cqes)
                     {
-                        // waitNr=1 => block until at least one CQE is available (or timeout)
-                        var submitted = shim_submit_and_wait_timeout(Ring, pC, 1u, &ts);
+                        got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
+                        if (got == 0)
+                        {
+                            int rc = shim_submit_and_wait_timeout(Ring, pC, 1u, &ts);
+                            
+                            // Hmm, I think this condition should be enough for now
+                            if (rc < 0) { _counter++; continue; }
+                            //if (rc == -62 || rc < 0 && rc != -17) { _counter++; continue; }
+                            //if (rc is -62 or < 0) { _counter++; continue; }
+
+                            got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
+                        }
+                        //else
+                        //{
+                        //    // already have at least 1, now grab the full batch
+                        //    got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
+                        //}
                     }
-                    
-                    fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
 
-                    if (got is -62 or < 0) { _counter++; continue; } // -ETIME or error
-                    if (got == 0) continue;                          // defensive (shouldn't happen with waitNr=1 unless timeout-style wrapper)
-
-                    for (int i = 0; i < got; i++)
-                    {
-                        io_uring_cqe* cqe = cqes[i];
+                    for (int i = 0; i < got; i++) {
+                        cqe = cqes[i];
 
                         ulong ud = shim_cqe_get_data64(cqe);
                         UdKind kind = UdKindOf(ud);
                         int res = cqe->res;
 
-                        if (kind == UdKind.Recv)
-                        {
+                        if (kind == UdKind.Recv) {
                             int fd = UdFdOf(ud);
                             bool hasBuffer = shim_cqe_has_buffer(cqe) != 0;
                             bool hasMore   = (cqe->flags & IORING_CQE_F_MORE) != 0;
 
-                            if (res <= 0)
-                            {
+                            if (res <= 0) {
                                 Console.WriteLine($"[w{Id}] recv res={res} fd={fd}");
 
-                                if (hasBuffer)
-                                {
+                                if (hasBuffer) {
                                     ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
                                     byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
                                     ReturnBufferRing(addr, bufferId); // queues SQE (will flush on next loop)
                                 }
 
-                                if (connections.Remove(fd, out var connection))
-                                {
+                                if (connections.Remove(fd, out var connection)) {
                                     connection.MarkClosed(res);
                                     _engine.ConnectionPool.Return(connection);
 
@@ -189,57 +197,47 @@ public sealed unsafe partial class Engine {
                                     close(fd);
                                 }
 
-                                shim_cqe_seen(Ring, cqe);
+                                //shim_cqe_seen(Ring, cqe);
                                 continue;
                             }
-
+                            
                             // res > 0
-                            if (!hasBuffer)
-                            {
-                                shim_cqe_seen(Ring, cqe);
+                            if (!hasBuffer) {
+                                //shim_cqe_seen(Ring, cqe);
                                 continue;
                             }
 
                             ushort bid = (ushort)shim_cqe_buffer_id(cqe);
                             byte* ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
 
-                            if (connections.TryGetValue(fd, out var connection2))
-                            {
+                            if (connections.TryGetValue(fd, out var connection2)) {
                                 connection2.EnqueueRecv(ptr, res, bid);
 
-                                if (!hasMore)
-                                {
+                                if (!hasMore) {
                                     // Re-arm multishot recv if kernel stopped it
                                     ArmRecvMultishot(Ring, fd, c_bufferRingGID); // queues SQE (flush next loop)
                                 }
-                            }
-                            else
-                            {
+                            } else {
                                 // No connection mapping => immediately return buffer
                                 ReturnBufferRing(ptr, bid); // queues SQE (flush next loop)
                             }
                         }
-                        else if (kind == UdKind.Send)
-                        {
+                        else if (kind == UdKind.Send) {
                             int fd = UdFdOf(ud);
-                            if (connections.TryGetValue(fd, out var connection))
-                            {
+                            if (connections.TryGetValue(fd, out var connection)) {
                                 connection.OutHead += (nuint)res;
-                                if (connection.OutHead < connection.OutTail)
-                                {
+                                if (connection.OutHead < connection.OutTail) {
                                     SubmitSend(Ring, connection.ClientFd, connection.OutPtr, connection.OutHead, connection.OutTail);
                                     // queued SQE; flushed next loop
                                 }
                             }
-                        }
-                        else if (kind == UdKind.Cancel)
-                        {
+                        } else if (kind == UdKind.Cancel) {
                             Console.WriteLine("Cancel");
                             // ignore; res==0 means cancel succeeded, res<0 often means already gone
                         }
-
-                        shim_cqe_seen(Ring, cqe);
+                        //shim_cqe_seen(Ring, cqe);
                     }
+                    shim_cq_advance(Ring, (uint)got);
                 }
             }
             finally
@@ -265,150 +263,7 @@ public sealed unsafe partial class Engine {
             }
         }
         
-        internal void Handle3() {
-            Dictionary<int,Connection> connections = _engine.Connections[Id];
-            ConcurrentQueue<int> reactorQueue = ReactorQueues[Id];
-            io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
-
-            try {
-                while (_engine.ServerRunning) {
-                    // Drain new connections
-                    while (reactorQueue.TryDequeue(out int newFd)) {
-                        connections[newFd] = _engine.ConnectionPool.Get()
-                            .SetFd(newFd)
-                            .SetReactor(_engine.Reactors[Id]);
-                        
-                        ArmRecvMultishot(Ring, newFd, c_bufferRingGID); 
-                        bool connectionAdded = _engine.ConnectionQueues.Writer.TryWrite(new ConnectionItem(Id, newFd));
-                        if (!connectionAdded) Console.WriteLine("Failed to write connection!!");
-                    }
-                    
-                    DrainReturnQ();
-                    
-                    io_uring_cqe* cqe0;
-                    __kernel_timespec ts;
-                    ts.tv_sec  = 0;
-                    ts.tv_nsec = Config.CqTimeout;
-                    
-                    int rc = shim_submit_and_wait_timeout(Ring, &cqe0, 1, &ts);
-                    if (rc is -62 or < 0) { _counter++; continue; }  // -ETIME etc
-
-                    // If we got 1 CQE pointer, mark it as seen NOW so peek doesn't return it again.
-                    if (rc > 0)
-                    {
-                        shim_cqe_seen(Ring, cqe0);
-                    }
-
-                    // 2) Now do your normal batch peek
-                    int got;
-                    fixed (io_uring_cqe** pC = cqes)
-                        got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
-                    
-                    /*
-                    // Single syscall: submit + wait
-                    uint toSubmit = shim_sq_ready(Ring);
-                    Console.WriteLine(toSubmit);
-                    __kernel_timespec ts; 
-                    ts.tv_sec = 0; 
-                    ts.tv_nsec = Config.CqTimeout;
-                    
-                    int rc = shim_enter(Ring, toSubmit, 1, IORING_ENTER_GETEVENTS, &ts);
-                    
-                    if (rc is -62 or < 0) { 
-                        _counter++; 
-                        continue; 
-                    }
-                    
-                    // ✅ CRITICAL FIX: Check if CQEs are actually visible
-                    uint ready = shim_cq_ready(Ring);
-                    if (ready == 0) {
-                        // Kernel said CQEs would be ready, but they're not visible yet
-                        // This happens due to memory ordering between kernel and userspace
-                        continue;
-                    }
-                    
-                    // NOW peek will work
-                    int got;
-                    fixed (io_uring_cqe** pC = cqes) 
-                        got = shim_peek_batch_cqe(Ring, pC, Math.Min(ready, (uint)Config.BatchCqes));
-                    
-                    // Safety check (should never be 0 now, but defensive)
-                    if (got == 0) continue;
-                    */
-
-                    for (int i = 0; i < got; i++) {
-                        io_uring_cqe* cqe = cqes[i];
-                        ulong ud = shim_cqe_get_data64(cqe);
-                        UdKind kind = UdKindOf(ud);
-                        int res = cqe->res;
-
-                        if (kind == UdKind.Recv) {
-                            int fd = UdFdOf(ud);
-                            bool hasBuffer = shim_cqe_has_buffer(cqe) != 0;
-                            bool hasMore = (cqe->flags & IORING_CQE_F_MORE) != 0;
-
-                            if (res <= 0) {
-                                Console.WriteLine($"[w{Id}] recv res={res} fd={fd}");
-                                if (hasBuffer) {
-                                    ushort bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                    byte* addr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                    ReturnBufferRing(addr, bufferId);
-                                }
-                                
-                                if (connections.Remove(fd, out var connection)) {
-                                    connection.MarkClosed(res);
-                                    _engine.ConnectionPool.Return(connection);
-                                    SubmitCancelRecv(Ring, fd);
-                                    if (shim_sq_ready(Ring) > 0) shim_submit(Ring);
-                                    close(fd);
-                                } 
-                                shim_cqe_seen(Ring, cqe);
-                                continue;
-                            } else {
-                                if (!hasBuffer) {
-                                    shim_cqe_seen(Ring, cqe);
-                                    continue;
-                                }
-                                
-                                var bufferId = (ushort)shim_cqe_buffer_id(cqe);
-                                var ptr = _bufferRingSlab + (nuint)bufferId * (nuint)Config.RecvBufferSize;
-                                
-                                if (connections.TryGetValue(fd, out var connection)) {
-                                    connection.EnqueueRecv(ptr, res, bufferId);
-                                    if (!hasMore) ArmRecvMultishot(Ring, fd, c_bufferRingGID);
-                                } else { 
-                                    ReturnBufferRing(ptr, bufferId);
-                                }
-                            }
-                        }
-                        else if (kind == UdKind.Send) {
-                            int fd = UdFdOf(ud);
-                            if (connections.TryGetValue(fd, out var connection)) {
-                                connection.OutHead += (nuint)res;
-                                if (connection.OutHead < connection.OutTail)
-                                    SubmitSend(Ring, connection.ClientFd, connection.OutPtr, connection.OutHead, connection.OutTail);
-                            }
-                        }
-                        else if (kind == UdKind.Cancel) {
-                            Console.WriteLine("Cancel");
-                        }
-                        shim_cqe_seen(Ring, cqe);
-                    }
-                }
-            } finally {
-                CloseAll(connections);
-                if (Ring != null && _bufferRing != null) {
-                    DrainReturnQ();
-                    shim_free_buf_ring(Ring, _bufferRing, (uint)Config.BufferRingEntries, c_bufferRingGID);
-                    _bufferRing = null;
-                }
-                if (Ring != null) { shim_destroy_ring(Ring); Ring = null; }
-                if (_bufferRingSlab != null) { NativeMemory.AlignedFree(_bufferRingSlab); _bufferRingSlab = null; }
-                Console.WriteLine($"Reactor[{Id}] Shutdown complete.");
-            }
-        }
-        
-        internal void Handle2() {
+        internal void HandleSubmitAndWaitCqe() {
             Dictionary<int,Connection> connections = _engine.Connections[Id];
             ConcurrentQueue<int> reactorQueue = ReactorQueues[Id];     // new FDs from acceptor
             io_uring_cqe*[] cqes = new io_uring_cqe*[Config.BatchCqes];
@@ -432,7 +287,11 @@ public sealed unsafe partial class Engine {
                     io_uring_cqe* cqe; __kernel_timespec ts; ts.tv_sec  = 0; ts.tv_nsec = Config.CqTimeout; // 1 ms timeout
                     int rc = shim_wait_cqes(Ring, &cqe, (uint)1, &ts); int got;
                     
-                    if (rc is -62 or < 0) { _counter++; continue; }
+                    // Hmm, I think this condition should be enough for now
+                    if (rc < 0) { _counter++; continue; }
+                    //if (rc == -62 || rc < 0 && rc != -17) { _counter++; continue; }
+                    //if (rc is -62 or < 0) { _counter++; continue; }
+                    
                     fixed (io_uring_cqe** pC = cqes) got = shim_peek_batch_cqe(Ring, pC, (uint)Config.BatchCqes);
 
                     for (int i = 0; i < got; i++) {

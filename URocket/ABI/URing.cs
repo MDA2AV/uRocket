@@ -358,29 +358,169 @@ public static unsafe partial class ABI{
     /// </summary>
     internal static int UdFdOf(ulong ud) => (int)(ud & 0xffffffff);
     
-    internal const uint IORING_SETUP_IOPOLL  = 1u << 0;
-    internal const uint IORING_SETUP_SQPOLL  = 1u << 1;
-    internal const uint IORING_SETUP_SQ_AFF  = 1u << 2;
-    
-    /*
-     CQE flags (32 bits):
-       ┌────────────────┬───────────────────┐
-       │  Buffer ID     │   Flag bits       │
-       │  (bits 16-31)  │   (bits 0-15)     │
-       └────────────────┴───────────────────┘
-             16 bits          16 bits
-       
-       Bit 0 (IORING_CQE_F_BUFFER): Set if kernel provided a buffer from buf-ring
-       Bit 1 (IORING_CQE_F_MORE):   Set if multishot operation will produce more CQEs
-       Bits 2-15: Reserved for other flags
-       Bits 16-31: Buffer ID (bid) when F_BUFFER is set
-     */
-    internal const uint IORING_CQE_F_MORE = (1U << 1);
-    internal const uint IORING_CQE_F_BUFFER = (1U << 0); 
-    internal const int IORING_CQE_BUFFER_SHIFT = 16;  // Buffer ID is in upper 16 bits of flags
-    
-    internal const int IORING_ASYNC_CANCEL_ALL = 1 << 0; // commonly this value
-    
+    // =============================================================================
+    // io_uring flags & constants (documented)
+    // =============================================================================
+
+    /// <summary>
+    /// io_uring setup flag: enable I/O polling (busy polling) instead of interrupt-driven completions.
+    /// <para>
+    /// When enabled, the kernel actively polls the device for completion rather than relying on interrupts.
+    /// This can reduce latency for very fast block devices (e.g., NVMe) at the cost of higher CPU usage.
+    /// </para>
+    /// <para>
+    /// ⚠ Generally not a good fit for sockets/networking: it burns CPU and does not help typical NIC paths.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_IOPOLL = 1u << 0;
+
+    /// <summary>
+    /// io_uring setup flag: enable Submission Queue polling (SQPOLL).
+    /// <para>
+    /// When enabled, the kernel creates a dedicated thread that continuously polls the submission queue (SQ)
+    /// and submits requests on behalf of userspace. This reduces the number of <c>io_uring_enter</c> syscalls
+    /// required for submission, which can improve throughput/latency at high submission rates.
+    /// </para>
+    /// <para>
+    /// Tradeoff: a kernel thread stays alive and consumes CPU even when the workload is light.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_SQPOLL = 1u << 1;
+
+    /// <summary>
+    /// io_uring setup flag: pin the SQPOLL kernel thread to a specific CPU.
+    /// <para>
+    /// Requires <see cref="IORING_SETUP_SQPOLL"/> and a valid CPU index provided at ring creation time.
+    /// Pinning improves cache locality and avoids scheduler migrations for the SQPOLL thread.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_SQ_AFF = 1u << 2;
+
+    /// <summary>
+    /// io_uring setup flag: request a completion queue (CQ) size different from the submission queue size.
+    /// <para>
+    /// Used together with native ring creation parameters to size CQ explicitly (useful when expecting more CQEs
+    /// than SQEs, e.g., with multishot operations).
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_CQSIZE = 1u << 3;
+
+    /// <summary>
+    /// io_uring setup flag: clamp queue sizes to allowed limits instead of failing.
+    /// <para>
+    /// If the requested SQ/CQ sizes are outside what the kernel permits, the kernel may reduce (clamp) them
+    /// to a supported value rather than returning an error.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_CLAMP = 1u << 4;
+
+    /// <summary>
+    /// io_uring setup flag: optimize for a single submitting userspace thread.
+    /// <para>
+    /// The kernel can skip some synchronization/locking when it knows there is only one issuer of SQEs.
+    /// This can reduce overhead slightly in tight reactor loops.
+    /// </para>
+    /// <para>
+    /// ⚠ If you submit from multiple threads while this flag is set, behavior is undefined (can corrupt state).
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_SINGLE_ISSUER = 1u << 12;
+
+    /// <summary>
+    /// io_uring setup flag: defer task_work execution triggered by completions.
+    /// <para>
+    /// Some completions cause the kernel to schedule task_work. With this flag, the kernel defers that work and
+    /// batches it, typically running it on a subsequent <c>io_uring_enter</c> call.
+    /// </para>
+    /// <para>
+    /// Benefit: reduces latency spikes and can improve throughput under high completion rates.
+    /// Tradeoff: some work is delayed, which can slightly increase tail latency for certain patterns.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_DEFER_TASKRUN = 1u << 13;
+
+    /// <summary>
+    /// io_uring setup flag: do not use <c>mmap</c> for SQ/CQ rings.
+    /// <para>
+    /// Advanced / niche. Used when you want to avoid ring mmaps (e.g., for special memory management or sandboxing).
+    /// Most applications should not use this unless they know exactly why.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_NO_MMAP = 1u << 14; // 0x4000
+
+    /// <summary>
+    /// io_uring setup flag: only allow I/O on registered files (fixed files).
+    /// <para>
+    /// When set, operations generally must use registered file descriptors (via register_files) rather than arbitrary fds.
+    /// Can reduce per-op overhead and can be used as a safety restriction.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_SETUP_REGISTERED_FD_ONLY = 1u << 15; // 0x8000
+
+
+    // =============================================================================
+    // CQE flags (cqe->flags)
+    // =============================================================================
+
+    /// <summary>
+    /// CQE flag: a provided buffer (buf-ring / buffer selection) was used.
+    /// <para>
+    /// When set, the upper 16 bits of <c>cqe->flags</c> contain the selected buffer id (bid).
+    /// </para>
+    /// </summary>
+    internal const uint IORING_CQE_F_BUFFER = 1u << 0;
+
+    /// <summary>
+    /// CQE flag: the operation will produce more completions (multishot).
+    /// <para>
+    /// When set, the request remains "active" and will keep generating CQEs over time
+    /// without requiring a resubmit (until it is canceled or fails).
+    /// </para>
+    /// </summary>
+    internal const uint IORING_CQE_F_MORE = 1u << 1;
+
+    /// <summary>
+    /// Bit shift for extracting the buffer id (bid) from <c>cqe->flags</c>.
+    /// <para>
+    /// Buffer id is stored in bits 16..31 when <see cref="IORING_CQE_F_BUFFER"/> is set.
+    /// Example: <c>bid = (ushort)(cqe.flags >> IORING_CQE_BUFFER_SHIFT)</c>.
+    /// </para>
+    /// </summary>
+    internal const int IORING_CQE_BUFFER_SHIFT = 16;
+
+
+    // =============================================================================
+    // Cancel flags (prep_cancel / async cancel)
+    // =============================================================================
+
+    /// <summary>
+    /// Cancel flag: cancel all matching requests (not just one).
+    /// <para>
+    /// Commonly used with cancel-by-user_data to stop multishot ops or multiple in-flight
+    /// operations sharing the same match key.
+    /// </para>
+    /// </summary>
+    internal const int IORING_ASYNC_CANCEL_ALL = 1 << 0;
+
+
+    // =============================================================================
+    // io_uring_enter(2) flags
+    // =============================================================================
+
+    /// <summary>
+    /// io_uring_enter flag: request that the kernel waits for completions if none are ready.
+    /// <para>
+    /// Typically used for "submit + wait" patterns. Without this flag, enter may submit but not block for CQEs.
+    /// </para>
+    /// </summary>
     internal const uint IORING_ENTER_GETEVENTS = 1u << 0;
-    internal const uint IORING_ENTER_EXT_ARG = 1u << 3; 
+
+    /// <summary>
+    /// io_uring_enter flag: use the extended argument format (enter2).
+    /// <para>
+    /// Required for certain advanced enter behaviors (including some timeout/argument passing modes).
+    /// In your shim, you may automatically OR this flag when passing a timeout/extended args.
+    /// </para>
+    /// </summary>
+    internal const uint IORING_ENTER_EXT_ARG = 1u << 3;
 }

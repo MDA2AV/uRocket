@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <unistd.h>         // syscall()
 #include <sys/syscall.h>    // __NR_io_uring_enter
 #include <liburing.h>
@@ -99,6 +100,10 @@ struct io_uring* shim_create_ring_ex(unsigned entries,
         }
     }
 
+    fprintf(stderr, "shim_create_ring_ex: flags=0x%x sq_cpu=%d idle=%u\n",
+        flags, sq_thread_cpu, sq_thread_idle_ms);
+    fprintf(stderr, "params: p.flags=0x%x p.wq_fd=%u\n", p.flags, p.wq_fd);
+    
     int rc = io_uring_queue_init_params(entries, ring, &p);
     if (rc < 0)
     {

@@ -15,7 +15,9 @@ public sealed record ReactorConfig(
     ///
     /// These flags directly affect how submissions are consumed by the kernel.
     /// </summary>
-    uint RingFlags = 0,
+    uint RingFlags = ABI.ABI.IORING_SETUP_SINGLE_ISSUER | ABI.ABI.IORING_SETUP_DEFER_TASKRUN,
+    //uint RingFlags = ABI.ABI.IORING_SETUP_SINGLE_ISSUER,
+    //uint RingFlags = 0,
     //uint RingFlags = ABI.ABI.IORING_SETUP_SQPOLL | ABI.ABI.IORING_SETUP_SQ_AFF,
 
     /// <summary>
