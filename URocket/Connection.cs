@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 using URocket.MultiProducerSingleConsumer;
@@ -40,7 +41,7 @@ public sealed unsafe class Connection : IValueTaskSource<ReadResult>
     private int _generation;  // incremented on Clear()/reuse
 
     // Per-connection recv ring (MPSC, batch snapshot)
-    private readonly MpscRecvRing _recv = new(capacityPow2: 1024);
+    private readonly MpscUnmanagedMemory _recv = new(capacityPow2: 1024);
 
     // --- Reactor thread API -------------------------------------------------
 
@@ -56,7 +57,7 @@ public sealed unsafe class Connection : IValueTaskSource<ReadResult>
 
         // If ring is full, you must decide a policy: drop/close/backpressure.
         // Here: close semantics (safer than corrupting queue).
-        if (!_recv.TryEnqueue(new RecvItem(ptr, length, bufferId)))
+        if (!_recv.TryEnqueue(new UnmanagedMemoryManager(ptr, length, bufferId)))
         {
             // Mark pending close (handler will observe and stop)
             Volatile.Write(ref _closed, 1);
@@ -74,7 +75,7 @@ public sealed unsafe class Connection : IValueTaskSource<ReadResult>
         if (Interlocked.Exchange(ref _armed, 0) == 1)
         {
             // Provide a tail snapshot for this batch boundary
-            int snap = _recv.SnapshotTail();
+            long snap = _recv.SnapshotTail();
             _readSignal.SetResult(new ReadResult(snap, isClosed: false));
         }
         else
@@ -120,7 +121,43 @@ public sealed unsafe class Connection : IValueTaskSource<ReadResult>
             if (Volatile.Read(ref _closed) != 0)
                 return new ValueTask<ReadResult>(ReadResult.Closed());
 
-            int snap = _recv.SnapshotTail();
+            long snap = _recv.SnapshotTail();
+            return new ValueTask<ReadResult>(new ReadResult(snap, isClosed: false));
+        }
+
+        // Only one waiter is allowed
+        if (Interlocked.Exchange(ref _armed, 1) == 1)
+            throw new InvalidOperationException("ReadAsync already armed.");
+
+        // Capture generation to guard pooled reuse
+        int gen = Volatile.Read(ref _generation);
+
+        // If it closed between checks and arm, avoid hanging
+        if (Volatile.Read(ref _closed) != 0)
+        {
+            Interlocked.Exchange(ref _armed, 0);
+            return new ValueTask<ReadResult>(ReadResult.Closed());
+        }
+
+        return new ValueTask<ReadResult>(this, (short)gen);
+    }
+    
+    public ValueTask<ReadResult> ReadAsync2()
+    {
+        // If already closed (or reused), complete synchronously as closed.
+        if (Volatile.Read(ref _closed) != 0)
+            return new ValueTask<ReadResult>(ReadResult.Closed());
+
+        // Fast path: something pending or ring not empty
+        if (Volatile.Read(ref _pending) == 1 || !_recv.IsEmpty())
+        {
+            Volatile.Write(ref _pending, 0);
+
+            // It might have become closed just now
+            if (Volatile.Read(ref _closed) != 0)
+                return new ValueTask<ReadResult>(ReadResult.Closed());
+
+            long snap = _recv.SnapshotTail();
             return new ValueTask<ReadResult>(new ReadResult(snap, isClosed: false));
         }
 
@@ -145,7 +182,7 @@ public sealed unsafe class Connection : IValueTaskSource<ReadResult>
     /// Drain one batch (bounded by the tail snapshot you got from ReadAsync).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryDequeueBatch(int tailSnapshot, out RecvItem item)
+    public bool TryDequeueBatch(long tailSnapshot, out UnmanagedMemoryManager? item)
         => _recv.TryDequeueUntil(tailSnapshot, out item);
 
     /// <summary>

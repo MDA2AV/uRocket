@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using URocket;
 using URocket.Engine;
+using URocket.Utils;
 
 namespace Playground;
 
@@ -16,12 +17,16 @@ public class HttpResponse
                 if (result.IsClosed)
                     break;
 
+                //ReadOnlySequence<byte> sequence = new ReadOnlySequence<byte>();
+                
                 unsafe
                 {
-                    while (connection.TryDequeueBatch(result.TailSnapshot, out var item))
+                    while (connection.TryDequeueBatch(result.TailSnapshot, out UnmanagedMemoryManager? item))
                     {
-                        var span = new ReadOnlySpan<byte>(item.Ptr, item.Length);
+                        var span = new ReadOnlySpan<byte>(item!.Ptr, item.Length);
                         // parse...
+                        
+                        //var mem = new UnmanagedMemoryManager(item.Ptr, item.Length);
 
                         // Return buffer after you’re done with that segment
                         connection.Reactor.EnqueueReturnQ(item.BufferId);
@@ -45,7 +50,7 @@ public class HttpResponse
         } catch (Exception e) { Console.WriteLine(e); }
         Console.WriteLine("end");
     }
-
+    
     private static unsafe byte* OK_PTR;
     private static nuint OK_LEN;
 

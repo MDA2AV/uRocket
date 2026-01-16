@@ -14,22 +14,24 @@ namespace URocket.Utils;
    }
  */
 
-public unsafe sealed class UnmanagedMemoryManager : MemoryManager<byte>
+public sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte>
 {
-    private readonly byte* _ptr;
-    private readonly int _length;
+    public byte* Ptr { get; }
+    public int Length { get; }
+    public ushort BufferId { get; }
 
-    public UnmanagedMemoryManager(byte* ptr, int length)
+    public UnmanagedMemoryManager(byte* ptr, int length, ushort bufferId)
     {
-        _ptr = ptr;
-        _length = length;
+        Ptr = ptr;
+        Length = length;
+        BufferId = bufferId;
     }
 
     public override Span<byte> GetSpan()
-        => new Span<byte>(_ptr, _length);
+        => new Span<byte>(Ptr, Length);
 
     public override MemoryHandle Pin(int elementIndex = 0)
-        => new MemoryHandle(_ptr + elementIndex);
+        => new MemoryHandle(Ptr + elementIndex);
 
     public override void Unpin() { }
 
