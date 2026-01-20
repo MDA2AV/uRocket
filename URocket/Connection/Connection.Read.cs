@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Threading.Tasks.Sources;
 using URocket.Utils;
 using URocket.Utils.MultiProducerSingleConsumer;
+using URocket.Utils.UnmanagedMemoryManager;
 using ReadResult = URocket.Utils.ReadResult;
 
 namespace URocket.Connection;
@@ -25,6 +26,8 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
 
     // Per-connection recv ring (MPSC, batch snapshot)
     private readonly MpscRecvRing _recv = new(capacityPow2: 1024);
+    
+    
 
     // --- Reactor thread API -------------------------------------------------
 
@@ -91,9 +94,8 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
     /// Returns a tail snapshot that defines the batch boundary.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueTask<ReadResult> ReadAsync() {
-        //ResetRead();
-        
+    public ValueTask<ReadResult> ReadAsync() 
+    {
         // If already closed (or reused), complete synchronously as closed.
         if (Volatile.Read(ref _closed) != 0)
             return new ValueTask<ReadResult>(ReadResult.Closed());
@@ -222,5 +224,25 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
         }
 
         _readSignal.OnCompleted(continuation, state, _readSignal.Version, flags);
+    }
+    
+    public UnmanagedMemoryManager[] GetRings(ReadResult readResult) 
+    {
+        var count = RingCount;
+
+        if (count == 1) 
+        {
+            TryDequeueBatch(readResult.TailSnapshot, out var item);
+            return [item.AsUnmanagedMemoryManager()];
+        }
+        
+        var mems = new UnmanagedMemoryManager[count];
+        for (int i = 0; i < count; i++) 
+        {
+            TryDequeueBatch(readResult.TailSnapshot, out var item);
+            mems[i] = item.AsUnmanagedMemoryManager();
+        }
+        
+        return mems;
     }
 }
