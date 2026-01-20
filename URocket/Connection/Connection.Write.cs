@@ -69,9 +69,7 @@ public unsafe partial class Connection : IBufferWriter<byte>, IDisposable {
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Flush() {
-        Reactor.Send(ClientFd, WriteBuffer, (uint)WriteHead, (uint)WriteTail);
-    }
+    public void Flush() => CanWrite = true;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Advance(int count) => WriteTail += count;

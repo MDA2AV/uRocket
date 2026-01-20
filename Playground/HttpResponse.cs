@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using URocket;
@@ -44,8 +45,8 @@ public class HttpResponse
                     }
                 }
                 */
-
-                var mems = Extract(connection, result);
+                
+                var mems = connection.GetRings(result);
                 var seq = mems.ToReadOnlySequence();
                 var reader = new SequenceReader<byte>(seq);
 
@@ -53,6 +54,9 @@ public class HttpResponse
                 
                 if (reader.TryReadTo(out ReadOnlySequence<byte> headers, "\r\n\r\n"u8)) {
                     // parse request
+
+                    var pos = reader.Position;
+                    var consumed = reader.Consumed;
                     
                     if(reader.End)
                         mems.ReturnRingBuffers(connection.Reactor);
@@ -75,28 +79,11 @@ public class HttpResponse
                     throw new InvalidOperationException("Failed to write response");
                 }
                 
-                connection.CanWrite = true;
+                connection.Flush();
                 connection.ResetRead();
             }
         } catch (Exception e) { Console.WriteLine(e); }
         Console.WriteLine("end");
-    }
-
-    private static UnmanagedMemoryManager[] Extract(Connection connection, ReadResult readResult) {
-        var count = connection.RingCount;
-
-        if (count == 1) {
-            connection.TryDequeueBatch(readResult.TailSnapshot, out var item);
-            return [item.AsUnmanagedMemoryManager()];
-        }
-        
-        var mems = new UnmanagedMemoryManager[count];
-        for (int i = 0; i < count; i++) {
-            connection.TryDequeueBatch(readResult.TailSnapshot, out var item);
-            mems[i] = item.AsUnmanagedMemoryManager();
-        }
-        
-        return mems;
     }
 
     private static unsafe byte* OK_PTR;

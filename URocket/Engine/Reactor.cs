@@ -148,7 +148,7 @@ public sealed unsafe partial class Engine {
                     connection.CanWrite = false; // Reset write flag for each drained connection
                     
                     if(connection.CanFlush)
-                        connection.Flush();
+                        Send(connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
                 }
             }
         }
@@ -288,7 +288,7 @@ public sealed unsafe partial class Engine {
                                 //connection.ResetRead();
                             }
                         } else if (kind == UdKind.Cancel) {
-                            Console.WriteLine("Cancel");
+                            // Console.WriteLine("Cancel");
                             // ignore; res==0 means cancel succeeded, res<0 often means already gone
                         }
                         //shim_cqe_seen(Ring, cqe);
