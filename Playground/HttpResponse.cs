@@ -46,7 +46,7 @@ public class HttpResponse
                 }
                 */
                 
-                var mems = connection.GetAllRings(result);
+                var mems = connection.GetAllSnapshotRingsAsUnmanagedMemory(result);
                 var seq = mems.ToReadOnlySequence();
                 var reader = new SequenceReader<byte>(seq);
 

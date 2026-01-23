@@ -1,11 +1,11 @@
 namespace URocket.Utils;
 
-public readonly unsafe struct RecvItem {
+public readonly unsafe struct RingItem {
     public readonly byte* Ptr;
     public readonly int Length;
     public readonly ushort BufferId;
 
-    public RecvItem(byte* ptr, int length, ushort bufferId) {
+    public RingItem(byte* ptr, int length, ushort bufferId) {
         Ptr = ptr;
         Length = length;
         BufferId = bufferId;

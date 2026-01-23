@@ -25,11 +25,3 @@ public sealed class RingSegment : ReadOnlySequenceSegment<byte>
         return next;
     }
 }
-
-
-[StructLayout(LayoutKind.Sequential)]
-public struct SeqPosLayout
-{
-    public object? Obj;
-    public int Int;
-}

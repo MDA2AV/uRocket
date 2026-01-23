@@ -4,22 +4,24 @@ namespace URocket.Utils.MultiProducerSingleConsumer;
 
 public sealed unsafe class MpscRecvRing
 {
-    private readonly RecvItem[] _items;
+    private readonly RingItem[] _items;
     private readonly int _mask;
     
     private long _tail; // producer-reserved count
     private long _head; // consumer position
+    
+    internal long Head => Volatile.Read(ref _head);
 
     public MpscRecvRing(int capacityPow2) {
         if (capacityPow2 <= 0 || (capacityPow2 & (capacityPow2 - 1)) != 0)
             throw new ArgumentException("capacityPow2 must be a power of two", nameof(capacityPow2));
 
-        _items = new RecvItem[capacityPow2];
+        _items = new RingItem[capacityPow2];
         _mask  = capacityPow2 - 1;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryEnqueue(in RecvItem item) {
+    public bool TryEnqueue(in RingItem item) {
         // Fast full check (approx) using current head/tail
         long head = Volatile.Read(ref _head);
         long tail = Volatile.Read(ref _tail);
@@ -39,7 +41,7 @@ public sealed unsafe class MpscRecvRing
     public long SnapshotTail() => Volatile.Read(ref _tail);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryDequeueUntil(long tailSnapshot, out RecvItem item) {
+    public bool TryDequeueUntil(long tailSnapshot, out RingItem item) {
         long head = _head;
         if (head >= tailSnapshot)
         {
@@ -53,13 +55,14 @@ public sealed unsafe class MpscRecvRing
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void DequeueSingle(out RecvItem item) {
-        item = _items[_head & _mask];
+    public RingItem DequeueSingle() {
+        var item = _items[_head & _mask];
         Volatile.Write(ref _head, _head + 1);
+        return item;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool TryPeekUntil(long tailSnapshot, out RecvItem item) {
+    public bool TryPeekUntil(long tailSnapshot, out RingItem item) {
         long head = _head;
         if (head >= tailSnapshot)
         {
@@ -71,7 +74,13 @@ public sealed unsafe class MpscRecvRing
         return true;
     }
 
-    public long GetTailHeadDiff() => _tail - _head;
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public RingItem PeekSingle()
+    {
+        return _items[_head & _mask];
+    }
+
+    public long GetTailHeadDiff() => Volatile.Read(ref _tail) - Volatile.Read(ref _head);
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsEmpty()

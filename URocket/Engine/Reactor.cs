@@ -255,7 +255,7 @@ public sealed unsafe partial class Engine {
                             byte* ptr = _bufferRingSlab + (nuint)bid * (nuint)Config.RecvBufferSize;
 
                             if (connections.TryGetValue(fd, out var connection2)) {
-                                connection2.EnqueueRecv(ptr, res, bid);
+                                connection2.EnqueueRingItem(ptr, res, bid);
 
                                 if (!hasMore) {
                                     // Re-arm multishot recv if kernel stopped it
