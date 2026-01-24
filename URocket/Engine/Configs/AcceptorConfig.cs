@@ -26,7 +26,6 @@ public sealed record AcceptorConfig(
     /// -1 means "no affinity / kernel decides".
     /// </summary>
     int SqCpuThread = -1,
-
     /// <summary>
     /// How long (in milliseconds) the SQPOLL kernel thread stays alive
     /// without submissions before sleeping.
@@ -34,7 +33,6 @@ public sealed record AcceptorConfig(
     /// Only meaningful when IORING_SETUP_SQPOLL is enabled.
     /// </summary>
     uint SqThreadIdleMs = 100,
-
     /// <summary>
     /// Number of entries in the submission queue (SQ) and completion queue (CQ).
     ///
@@ -46,7 +44,6 @@ public sealed record AcceptorConfig(
     /// how many accept CQEs can be pending at once.
     /// </summary>
     uint RingEntries = 8 * 1024,
-
     /// <summary>
     /// Maximum number of CQEs processed per loop iteration when calling
     /// io_uring_peek_batch_cqe().
@@ -65,7 +62,6 @@ public sealed record AcceptorConfig(
     /// than BatchCqes: it reflects submission-queue pressure and connection handoff rate, not completion-queue throughput.
     /// </summary>
     uint BatchSqes = 4096,
-    
     /// <summary>
     /// Timeout (in nanoseconds) passed to io_uring_wait_cqes().
     ///
@@ -73,6 +69,8 @@ public sealed record AcceptorConfig(
     /// Smaller values reduce tail latency but increase CPU usage.
     /// </summary>
     long CqTimeout = 100_000_000,
-    
+    /// <summary>
+    /// Controls which IP stack the engine uses for its listening socket.
+    /// </summary>
     IPVersion IPVersion = IPVersion.IPv6DualStack
 );

@@ -2,7 +2,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using URocket.Connection;
 using URocket.Utils;
-using URocket.Utils.ReadOnlySequence;
 using URocket.Utils.UnmanagedMemoryManager;
 
 namespace Examples.ZeroAlloc.Basic;

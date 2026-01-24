@@ -1,15 +1,10 @@
 namespace URocket.Utils;
 
-public readonly unsafe struct RingItem {
-    public readonly byte* Ptr;
-    public readonly int Length;
-    public readonly ushort BufferId;
-
-    public RingItem(byte* ptr, int length, ushort bufferId) {
-        Ptr = ptr;
-        Length = length;
-        BufferId = bufferId;
-    }
+public readonly unsafe struct RingItem(byte* ptr, int length, ushort bufferId)
+{
+    public readonly byte* Ptr = ptr;
+    public readonly int Length = length;
+    public readonly ushort BufferId = bufferId;
 
     public ReadOnlySpan<byte> AsSpan() => new(Ptr, Length);
     

@@ -2,8 +2,10 @@ using System.Runtime.InteropServices;
 
 namespace URocket.Utils.ReadOnlySpan;
 
-public static class ReadOnlySpanExtensions {
-    public static unsafe UnmanagedMemoryManager.UnmanagedMemoryManager ToUnmanagedMemoryManager(this ReadOnlySpan<byte> source) {
+public static class ReadOnlySpanExtensions 
+{
+    public static unsafe UnmanagedMemoryManager.UnmanagedMemoryManager ToUnmanagedMemoryManager(this ReadOnlySpan<byte> source) 
+    {
         byte* ptr = (byte*)NativeMemory.AlignedAlloc((nuint)source.Length, 64);
         if (ptr == null) throw new OutOfMemoryException();
 
