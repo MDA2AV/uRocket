@@ -51,7 +51,6 @@ internal sealed class ZeroAlloc_Advanced_MultiRings_ConnectionHandler
         }
         finally
         {
-            Console.WriteLine("Releasing _inflightData..");
             unsafe { NativeMemory.AlignedFree(_inflightData); }
         }
     }

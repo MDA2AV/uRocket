@@ -1,3 +1,5 @@
+using URocket.Utils.SingleProducerSingleConsumer;
+
 namespace URocket.Connection;
 
 using Utils.MultiProducerSingleConsumer;
@@ -80,7 +82,7 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
     /// Per-connection inbound ring.
     /// Producers (reactor threads) enqueue received buffers; consumer drains.
     /// </summary>
-    private readonly MpscRecvRing _recv = new(capacityPow2: 1024);
+    private readonly SpscRecvRing _recv = new(capacityPow2: 1024);
 
     // =========================================================================
     // Reactor thread API (producer side)
