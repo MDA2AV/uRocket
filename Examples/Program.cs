@@ -18,15 +18,32 @@ internal class Program
             NReactors = 12 // Single reactor, increase this number for higher throughput if needed.
         };
         engine.Listen();
+        
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(() => {
+            Console.ReadLine();
+            engine.Stop();
+            cts.Cancel();
+        }, cts.Token);
 
-        // Loop to handle new connections, fire and forget approach
-        while (engine.ServerRunning)
+        try
         {
-            var connection = await engine.AcceptAsync();
-            //_ = new ZeroAlloc_Advanced_SingleRing_ConnectionHandler().HandleConnectionAsync(connection);
-            _ = new ZeroAlloc_Advanced_MultiRings_ConnectionHandler().HandleConnectionAsync(connection);
-            //_ = Rings_as_ReadOnlySequence.HandleConnectionAsync(connection);
-            //_ = Rings_as_ReadOnlySpan.HandleConnectionAsync(connection);
+            // Loop to handle new connections, fire and forget approach
+            while (engine.ServerRunning)
+            {
+                var connection = await engine.AcceptAsync(cts.Token);
+                if (connection is null) continue;
+                //_ = new ZeroAlloc_Advanced_SingleRing_ConnectionHandler().HandleConnectionAsync(connection);
+                _ = new ZeroAlloc_Advanced_MultiRings_ConnectionHandler().HandleConnectionAsync(connection);
+                //_ = Rings_as_ReadOnlySequence.HandleConnectionAsync(connection);
+                //_ = Rings_as_ReadOnlySpan.HandleConnectionAsync(connection);
+            }
         }
+        catch (OperationCanceledException)
+        {
+            Console.WriteLine("Signaled to stop");
+        }
+
+        Console.WriteLine("Main loop finished.");
     }
 }

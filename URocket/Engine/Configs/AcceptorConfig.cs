@@ -64,5 +64,13 @@ public sealed record AcceptorConfig(
     /// work we allow per loop, not CQ capacity. For this reason the setting is named BatchSqes rather
     /// than BatchCqes: it reflects submission-queue pressure and connection handoff rate, not completion-queue throughput.
     /// </summary>
-    uint BatchSqes = 4096
+    uint BatchSqes = 4096,
+    
+    /// <summary>
+    /// Timeout (in nanoseconds) passed to io_uring_wait_cqes().
+    ///
+    /// Acts as a low-latency sleep when no completions are available.
+    /// Smaller values reduce tail latency but increase CPU usage.
+    /// </summary>
+    long CqTimeout = 100_000_000
 );
