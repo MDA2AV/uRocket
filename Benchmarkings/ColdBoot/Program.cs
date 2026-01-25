@@ -1,5 +1,7 @@
-﻿using System.Net;
+﻿using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
+using System.Resources;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using URocket.Connection;
@@ -12,19 +14,27 @@ namespace ColdBoot;
 
 // dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
 
+
+internal static class Boot
+{
+    internal static long StartTs;
+
+    [ModuleInitializer]
+    internal static void Init()
+        => StartTs = Stopwatch.GetTimestamp();
+}
+
 internal class Program
 {
     public static async Task Main(string[] args)
     {
+        var cts = new CancellationTokenSource();
         var engine = new Engine(new EngineOptions
         {
             Port = 8080,
             ReactorCount = 1
         });
         engine.Listen();
-
-        var cts = new CancellationTokenSource();
-        
         _ = HandleAsync(engine, cts.Token);
         
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
@@ -33,11 +43,16 @@ internal class Program
         };
         var ipAdress = IPAddress.Parse("127.0.0.1");
         await sock.ConnectAsync(new IPEndPoint(ipAdress, 8080), cts.Token);
-        sock.Send("GET / HTTP/1.1\r\nHost: S\r\n"u8);
-        var buffer = new byte[1024];
+        sock.Send("GET / HTTP/1.1\r\nHost: S\r\n\r\n"u8);
+        var buffer = new byte[128];
         var receivedBytesCount = await sock.ReceiveAsync(buffer);
+        
+        var elapsed = Stopwatch.GetElapsedTime(Boot.StartTs);
+        Console.WriteLine($"Process-start → first response: {elapsed.TotalMilliseconds:F3} ms");
         Console.WriteLine($"Received {receivedBytesCount} bytes");
         
+        sock.Dispose();
+        engine.Stop();
         await cts.CancelAsync();
     }
 
@@ -53,10 +68,7 @@ internal class Program
                 _ = HandleConnectionAsync(connection);
             }
         }
-        catch (OperationCanceledException)
-        {
-            Console.WriteLine("Signaled to stop");
-        }
+        catch (OperationCanceledException) { }
     }
     
     private static async Task HandleConnectionAsync(Connection connection)
