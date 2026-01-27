@@ -225,9 +225,16 @@ public sealed unsafe partial class Engine
                 if (_engine.Connections[Id].TryGetValue(fd, out var connection))
                 {
                     connection.CanWrite = false; // Reset write flag for each drained connection
-                    
-                    if(connection.CanFlush)
-                        Send(connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
+
+                    if (connection.CanFlush)
+                    {
+                        Send(connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead,
+                            (uint)connection.WriteTail);
+
+                        // Data is sent to kernel, until we don't have confirmation that
+                        // this data was fully processed by the kernel we don't send more data to it 
+                        connection.CanFlush = false;
+                    }
                 }
             }
         }

@@ -143,8 +143,14 @@ public sealed unsafe partial class Engine
                                 if (connection.WriteHead < connection.WriteTail) 
                                 {
                                     Console.WriteLine("Oddness");
-                                    connection.CanFlush = false;
-                                    SubmitSend(io_uring_instance, connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
+                                    //connection.CanFlush = false; This is unnecessary? 
+                                    SubmitSend(
+                                        io_uring_instance, 
+                                        connection.ClientFd,
+                                        connection.WriteBuffer, 
+                                        (uint)connection.WriteHead, 
+                                        (uint)(connection.WriteTail - connection.WriteHead));
+                                    
                                     continue;
                                     // queued SQE; flushed next loop
                                 }

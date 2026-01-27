@@ -30,13 +30,16 @@ public unsafe partial class Connection : IBufferWriter<byte>, IDisposable
     private readonly UnmanagedMemoryManager _manager;
 
     /// <summary>Pointer to the unmanaged write buffer.</summary>
-    public byte* WriteBuffer { get; private set; }
+    public byte* WriteBuffer { get; }
 
     /// <summary>Logical start of valid data (currently unused; reserved for future streaming).</summary>
     public int WriteHead { get; set; }
 
     /// <summary>Logical end of written data in <see cref="WriteBuffer"/>.</summary>
-    public int WriteTail { get; set; }
+    public int WriteTail { get; private set; }
+
+    /// <summary> Number of bytes that were sent to kernel, we need this value to validate whether all flushed data was processed by the kernel. </summary>
+    internal int WriteInFlight { get; set; }
 
     /// <summary>Indicates that the buffer may be flushed by the reactor.</summary>
     public volatile bool CanFlush = true;
@@ -59,7 +62,7 @@ public unsafe partial class Connection : IBufferWriter<byte>, IDisposable
     /// Copies unmanaged memory into the write slab.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void Write(byte* ptr, int length)
+    internal void Write(byte* ptr, int length)
     {
         if ((uint)length > (uint)_writeSlabSize) // also rejects negative
             throw new ArgumentOutOfRangeException(nameof(length));
