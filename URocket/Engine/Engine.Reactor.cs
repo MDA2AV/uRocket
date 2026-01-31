@@ -189,55 +189,50 @@ public sealed unsafe partial class Engine
             }
             return count;
         }
-        /// <summary>
-        /// MPSC queue for outbound writes coming from application threads.
-        /// </summary>
-        private readonly MpscWriteItem _write = new(capacityPow2: 1024);
+        
+        private readonly MpscIntQueue _flushQ = new(capacityPow2: 4096);
 
-        public bool TryEnqueueWrite(WriteItem item) => _write.TryEnqueue(item);
-
-        public bool TryDequeueWrite(out WriteItem item) => _write.TryDequeue(out item);
-        /// <summary>
-        /// Drain write queue, copy buffers into connection write slabs,
-        /// and issue send SQEs for all affected connections.
-        /// </summary>
-        private void DrainWriteQ() 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void EnqueueFlush(int fd)
         {
-            _flushableFds.Clear();
-            
-            while (_write.TryDequeue(out WriteItem item))
+            while (!_flushQ.TryEnqueue(fd))
+                Thread.Yield();
+        }
+
+        private void DrainFlushQ()
+        {
+            while (_flushQ.TryDequeue(out int fd))
             {
-                if (_engine.Connections[Id].TryGetValue(item.ClientFd, out var connection))
+                if (!_engine.Connections[Id].TryGetValue(fd, out var c))
+                    continue;
+
+                // If already have a send in flight, do nothing:
+                // the CQE path will continue draining to WriteInFlight.
+                if (Volatile.Read(ref c.SendInflight) != 0)
+                    continue;
+
+                // If nothing to flush (or flush target not set), do nothing.
+                // FlushAsync sets WriteInFlight = tail snapshot.
+                int target = c.WriteInFlight;
+                if (target <= 0)
+                    continue;
+
+                // Start sending from current head (should be 0 for slab reset model)
+                // If you ever keep head across flushes, this still works.
+                if (c.WriteHead >= target)
                 {
-                    if (connection.CanWrite)
-                    {
-                        // Write buffer and free it
-                        connection.Write(item.Buffer.Ptr, item.Buffer.Length);
-                        item.Buffer.Free();
-                        
-                        _flushableFds.Add(connection.ClientFd);
-                    }
+                    // already satisfied
+                    if (c.IsFlushInProgress)
+                        c.CompleteFlush();
+                    continue;
                 }
-            }
 
-            foreach (int fd in _flushableFds)
-            {
-                if (_engine.Connections[Id].TryGetValue(fd, out var connection))
-                {
-                    connection.CanWrite = false; // Reset write flag for each drained connection
+                Volatile.Write(ref c.SendInflight, 1);
 
-                    if (connection.CanFlush)
-                    {
-                        Send(connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead,
-                            (uint)connection.WriteTail);
-
-                        // Data is sent to kernel, until we don't have confirmation that
-                        // this data was fully processed by the kernel we don't send more data to it 
-                        connection.CanFlush = false;
-                    }
-                }
+                Send(c.ClientFd, c.WriteBuffer, (uint)c.WriteHead, (uint)target);
             }
         }
+        
         /// <summary>
         /// Enqueue a send SQE for this reactor's ring.
         /// </summary>

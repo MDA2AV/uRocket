@@ -37,7 +37,7 @@ public sealed unsafe partial class Engine
                     
                     DrainReturnQ(); // Drain rings returns
                     
-                    DrainWriteQ();
+                    DrainFlushQ();
                     
                     if (shim_sq_ready(io_uring_instance) > 0) 
                         shim_submit(io_uring_instance);
@@ -120,30 +120,35 @@ public sealed unsafe partial class Engine
                         else if (kind == UdKind.Send) 
                         {
                             int fd = UdFdOf(ud);
-                            if (connections.TryGetValue(fd, out var connection)) 
+                            if (connections.TryGetValue(fd, out var connection))
                             {
-                                // Advance send progress.
-                                connection.WriteHead += res;
-                                
-                                // Some data was not flushed
-                                // We can either create a new submission to flush the remaining data or also
-                                // move it to the beginning of the buffer (extra copy), this extra copy can be useful
-                                // to avoid hitting the buffer limits
-                                // For now... no copying, just create a new sqe
-                                if (connection.WriteHead < connection.WriteTail) 
+                                if (res <= 0)
                                 {
-                                    Console.WriteLine("Oddness");
-                                    connection.CanFlush = false;
-                                    SubmitSend(io_uring_instance, connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
+                                    // error/close handling
+                                    Volatile.Write(ref connection.SendInflight, 0);
                                     continue;
-                                    // queued SQE; flushed next loop
                                 }
-                                //if (connection.WriteHead < connection.WriteTail)
-                                //    SubmitSend(Ring, connection.ClientFd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)connection.WriteTail);
-                                
-                                connection.CanFlush = true;
-                                connection.ResetWriteBuffer();
-                                //connection.ResetRead();
+
+                                connection.WriteHead += res;
+
+                                int target = connection.WriteInFlight;
+
+                                // Still flushing target snapshot
+                                if (connection.WriteHead < target)
+                                {
+                                    // Correct: len is total-end (target), not remaining
+                                    SubmitSend(io_uring_instance, fd, connection.WriteBuffer, (uint)connection.WriteHead, (uint)target);
+                                    continue;
+                                }
+
+                                // Flush batch done
+                                Volatile.Write(ref connection.SendInflight, 0);
+
+                                connection.WriteInFlight = 0;
+                                connection.ResetWriteBuffer(); // safe because _flushInProgress forbids concurrent writes
+
+                                if (connection.IsFlushInProgress)
+                                    connection.CompleteFlush();
                             }
                         }
                         else if (kind == UdKind.Cancel) 

@@ -1,14 +1,9 @@
+using System.Runtime.CompilerServices;
+using System.Threading.Tasks.Sources;
+using URocket.Utils;
 using URocket.Utils.SingleProducerSingleConsumer;
 
 namespace URocket.Connection;
-
-using Utils.MultiProducerSingleConsumer;
-using ReadResult = Utils.ReadResult;
-
-using System;
-using System.Runtime.CompilerServices;
-using System.Threading;
-using System.Threading.Tasks.Sources;
 
 /// <summary>
 /// A pooled, unsafe connection object used by a reactor-style networking engine.
@@ -25,18 +20,8 @@ using System.Threading.Tasks.Sources;
 /// - A close transitions <see cref="_closed"/> from 0 to 1 (published), waking any waiter.
 /// </summary>
 [SkipLocalsInit]
-public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
+public sealed partial class Connection
 {
-    // =========================================================================
-    // Identity / ownership
-    // =========================================================================
-
-    /// <summary>Socket file descriptor for this connection.</summary>
-    public int ClientFd { get; private set; }
-
-    /// <summary>Owning reactor (used to return buffers back to reactor-owned pool).</summary>
-    public Engine.Engine.Reactor Reactor { get; private set; } = null!;
-
     // =========================================================================
     // Read completion & state (single-consumer)
     // =========================================================================
@@ -180,59 +165,6 @@ public sealed unsafe partial class Connection : IValueTaskSource<ReadResult>
         // If it closed while we were processing, ensure next ReadAsync returns closed immediately.
         if (Volatile.Read(ref _closed) != 0)
             Volatile.Write(ref _pending, 1);
-    }
-
-    // =========================================================================
-    // Pooling / lifecycle
-    // =========================================================================
-
-    /// <summary>
-    /// Reset this instance to a safe "closed" state for reuse.
-    ///
-    /// Important:
-    /// - Bumps <see cref="_generation"/> so any in-flight ValueTasks from a prior lifetime are invalidated.
-    /// - Publishes closed=1 so late producers/consumers do not wait indefinitely.
-    /// - Clears ring and resets completion state.
-    /// </summary>
-    public void Clear()
-    {
-        // Invalidate any awaiting token by bumping generation.
-        Interlocked.Increment(ref _generation);
-
-        // Publish closed so any late handler calls don't wait.
-        Volatile.Write(ref _closed, 1);
-
-        // Write-side state (defined in another partial).
-        ResetWriteBuffer();
-        CanWrite = false;
-        CanFlush = true;
-
-        // Read-side state.
-        Volatile.Write(ref _armed, 0);
-        Volatile.Write(ref _pending, 0);
-        _readSignal.Reset();
-        _recv.Clear();
-    }
-
-    /// <summary>Assign fd for a newly accepted connection.</summary>
-    public Connection SetFd(int fd) { ClientFd = fd; return this; }
-
-    /// <summary>
-    /// Attach to a reactor and open the connection for a new lifetime.
-    /// Must be called when taking the connection from the pool for a new client.
-    /// </summary>
-    public Connection SetReactor(Engine.Engine.Reactor reactor)
-    {
-        Reactor = reactor;
-
-        // New live connection: open it.
-        Volatile.Write(ref _closed, 0);
-        Volatile.Write(ref _pending, 0);
-        Volatile.Write(ref _armed, 0);
-        _readSignal.Reset();
-        _recv.Clear();
-
-        return this;
     }
 
     // =========================================================================

@@ -90,6 +90,7 @@ public sealed partial class Connection
         sequence = new ReadOnlySequence<byte>(head, 0, tail, tail.Memory.Length);
         return true;
     }
+    
     /// <summary>
     /// Dequeues all receive-ring segments that existed at the time of the given
     /// <see cref="ReadResult"/> snapshot and returns them as unmanaged memory owners.
@@ -130,6 +131,7 @@ public sealed partial class Connection
         
         return true;
     }
+    
     /// <summary>
     /// Dequeues all receive-ring items that existed at the time of the given
     /// <see cref="ReadResult"/> snapshot and returns them as raw <see cref="RingItem"/>s.
@@ -169,6 +171,7 @@ public sealed partial class Connection
         
         return true;
     }
+    
     /// <summary>
     /// Dequeues all ring items visible in the current snapshot batch and converts
     /// them to <see cref="UnmanagedMemoryManager"/> instances.
@@ -192,6 +195,7 @@ public sealed partial class Connection
 
         return mems;
     }
+    
     /// <summary>
     /// Dequeues all ring items visible in the current snapshot batch.
     /// </summary>
@@ -213,6 +217,7 @@ public sealed partial class Connection
 
         return items;
     }
+    
     /// <summary>
     /// Peeks all ring items visible in the current snapshot batch and converts them
     /// to <see cref="UnmanagedMemoryManager"/> instances.
@@ -235,6 +240,7 @@ public sealed partial class Connection
         
         return mems;
     }
+    
     /// <summary>
     /// Peeks all ring items visible in the current snapshot batch.
     /// </summary>

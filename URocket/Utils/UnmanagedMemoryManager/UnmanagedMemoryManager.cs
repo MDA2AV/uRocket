@@ -15,7 +15,8 @@ namespace URocket.Utils.UnmanagedMemoryManager;
    }
  */
 
-public sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte> {
+public sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte> 
+{
     private readonly bool _freeable = true;
     
     private readonly byte* _ptr;
@@ -25,10 +26,33 @@ public sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte> {
     public byte* Ptr => _ptr;
     public int Length => _length;
 
-    public UnmanagedMemoryManager(byte* ptr, int length) { _ptr = ptr; _length = length; }
-    public UnmanagedMemoryManager(byte* ptr, int length, bool freeable) { _ptr = ptr; _length = length; _freeable = freeable; }
-    public UnmanagedMemoryManager(byte* ptr, int length, ushort bufferId) { _ptr = ptr; _length = length; BufferId = bufferId; }
-    public UnmanagedMemoryManager(byte* ptr, int length, ushort bufferId, bool freeable) { _freeable = freeable; _ptr = ptr; _length = length; BufferId = bufferId; }
+    public UnmanagedMemoryManager(byte* ptr, int length)
+    {
+        _ptr = ptr; 
+        _length = length; 
+    }
+
+    public UnmanagedMemoryManager(byte* ptr, int length, bool freeable)
+    {
+        _ptr = ptr; 
+        _length = length; 
+        _freeable = freeable; 
+    }
+
+    public UnmanagedMemoryManager(byte* ptr, int length, ushort bufferId)
+    {
+        _ptr = ptr; 
+        _length = length; 
+        BufferId = bufferId; 
+    }
+
+    public UnmanagedMemoryManager(byte* ptr, int length, ushort bufferId, bool freeable)
+    {
+        _freeable = freeable; 
+        _ptr = ptr; 
+        _length = length; 
+        BufferId = bufferId; 
+    }
 
     public override Span<byte> GetSpan() => new Span<byte>(_ptr, _length);
 
@@ -36,7 +60,8 @@ public sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte> {
 
     public override void Unpin() { }
 
-    public void Free() {
+    public void Free() 
+    {
         if (!_freeable) return;
         if (_ptr != null) NativeMemory.AlignedFree(_ptr); 
     }
