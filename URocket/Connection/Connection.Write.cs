@@ -77,7 +77,7 @@ public unsafe partial class Connection
     /// <summary>
     /// Logical end of written staged data in <see cref="WriteBuffer"/>. Producer appends here.
     /// </summary>
-    internal int WriteTail { get; set; }
+    public int WriteTail { get; private set; }
 
     /// <summary>
     /// Logical end of written staged data in <see cref="WriteBuffer"/>. Producer appends here.
