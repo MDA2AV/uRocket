@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace URocket.Utils.UnmanagedMemoryManager;
@@ -21,9 +22,11 @@ public sealed unsafe class UnmanagedMemoryManager : MemoryManager<byte>
     
     private readonly byte* _ptr;
     private readonly int _length;
+    
     public ushort BufferId { get; }
     
     public byte* Ptr => _ptr;
+    
     public int Length => _length;
 
     public UnmanagedMemoryManager(byte* ptr, int length)

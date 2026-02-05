@@ -37,7 +37,7 @@ internal sealed class ConnectionHandler
 
                 if (HandleResult(connection, ref result))
                 {
-                    connection.Flush(); // Mark data to be ready to be flushed
+                    await connection.FlushAsync(); // Mark data to be ready to be flushed
                 }
 
                 // Reset connection's ManualResetValueTaskSourceCore<ReadResult>
@@ -222,16 +222,8 @@ internal sealed class ConnectionHandler
         // Write the response
         var msg =
             "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
-
-        // Building an UnmanagedMemoryManager wrapping the msg, this step has no data allocation
-        // however msg must be fixed/pinned because the engine reactor's needs to pass a byte* to liburing
-        var unmanagedMemory = new UnmanagedMemoryManager(
-            (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(msg)),
-            msg.Length,
-            false); // Setting freeable to false signaling that this unmanaged memory should not be freed because it comes from an u8 literal
-
-        if (!connection.Write(new WriteItem(unmanagedMemory, connection.ClientFd)))
-            throw new InvalidOperationException("Failed to write response");
+        
+        connection.Write(msg);
     }
     
     private static int GetCurrentRingIndex(in int totalAdvanced, UnmanagedMemoryManager[] rings, out int currentRingAdvanced)
