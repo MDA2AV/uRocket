@@ -12,8 +12,12 @@
         <SelfContained>true</SelfContained>
     </PropertyGroup>
 
+    <ItemGroup Condition="$(PublishAot) == 'true'">
+        <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.HillClimbing.Disable" Value="true" />
+    </ItemGroup>
+
     <ItemGroup>
-      <PackageReference Include="URocket" Version="10.5.2" />
+      <ProjectReference Include="..\..\zerg\zerg.csproj" />
     </ItemGroup>
 
 </Project>

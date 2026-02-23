@@ -1,9 +1,12 @@
 using System.Buffers;
+using System.Diagnostics.Contracts;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using URocket.Connection;
-using URocket.Utils;
-using URocket.Utils.UnmanagedMemoryManager;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using zerg;
+using zerg.Utils;
+using zerg.Utils.UnmanagedMemoryManager;
 
 namespace BenchmarkApp;
 
@@ -12,8 +15,18 @@ internal sealed class ConnectionHandler
     private readonly unsafe byte* _inflightData;
     private int _inflightTail;
     private readonly int _length;
+    
+    [ThreadStatic]
+    private static Utf8JsonWriter? t_writer;
+    private static readonly JsonContext SerializerContext = JsonContext.Default;
+    
+    private const string _jsonBody = "Hello, World!";
+    private static ReadOnlySpan<byte> s_plainTextBody => "Hello, World!"u8;
+    
+    private static ReadOnlySpan<byte> s_headersJson => "HTTP/1.1 200 OK\r\nContent-Length:   \r\nServer: S\r\nContent-Type: application/json\r\n"u8;
+    private static ReadOnlySpan<byte> s_headersPlainText => "HTTP/1.1 200 OK\r\nContent-Length:   \r\nServer: S\r\nContent-Type: text/plain\r\n"u8;
 
-    public unsafe ConnectionHandler(int length = 1024 * 16)
+    public unsafe ConnectionHandler(int length = 1024 * 128)
     {
         _length = length;
         
@@ -34,7 +47,7 @@ internal sealed class ConnectionHandler
                 var result = await connection.ReadAsync(); // Read data from the wire
                 if (result.IsClosed)
                     break;
-
+                
                 if (HandleResult(connection, ref result))
                 {
                     await connection.FlushAsync(); // Mark data to be ready to be flushed
@@ -56,174 +69,207 @@ internal sealed class ConnectionHandler
 
     private unsafe bool HandleResult(Connection connection, ref ReadResult result)
     {
-        // Signals where at least one request was handled, and we can flush written response data
-        var flushable = false;
+        bool flushable;
+        int advanced;
 
-        var totalAdvanced = 0;
+        UnmanagedMemoryManager[] rings = connection.GetAllSnapshotRingsAsUnmanagedMemory(result);
+        int ringCount = rings.Length;
 
-        // Get the "head" ring - first ring received
-        var rings = connection.GetAllSnapshotRingsAsUnmanagedMemory(result);
-        var ringsTotalLength = CalculateRingsTotalLength(rings);
-        var ringCount = rings.Length;
-        
-        if(ringCount == 0)
+        if (ringCount == 0)
             return false;
-        
-        while (true) // Inner loop, iterates every request handling, it can happen 0, 1 or n times
-            // per read as we may read an incomplete, one single or multiple requests at once
+
+        int oldInflightTail = _inflightTail;
+
+        if (_inflightTail == 0)
         {
-            bool found;
-            int advanced;
-            // Here we want to merge existing inflight data with the just read new data
-            if (_inflightTail == 0)
+            flushable = ProcessRings(connection, rings, out advanced);
+        }
+        else
+        {
+            // Cold path
+            UnmanagedMemoryManager[] mems = new UnmanagedMemoryManager[ringCount + 1];
+
+            mems[0] = new(_inflightData, _inflightTail);
+
+            for (int i = 1; i < ringCount + 1; i++)
+                mems[i] = rings[i - 1];
+
+            flushable = ProcessRings(connection, mems, out advanced);
+
+            if (flushable)  // a request was handled so inflight data can be discarded
+                _inflightTail = 0;
+        }
+
+        if (!flushable)
+        {
+            // No complete request found. Copy ring data to the inflight buffer
+            // and return rings to the kernel. Do NOT retract — retracted rings keep
+            // the SPSC non-empty, causing ReadAsync() to fast-path and creating
+            // an infinite busy loop that pegs the CPU.
+            for (int i = 0; i < rings.Length; i++)
             {
-                if (ringCount == 1)
-                {
-                    // Very Hot Path, typically each ring contains a full request and inflight buffer isn't used
-                    var span = new ReadOnlySpan<byte>(rings[0].Ptr + totalAdvanced, rings[0].Length - totalAdvanced);
-                    found = HandleNoInflightSingleRing(connection, ref span, out advanced);
-                }
-                else
-                {
-                    // Lukewarm Path
-                    found = HandleNoInflightMultipleRings(connection, rings, out advanced);
-                }
-            }
-            else
-            {
-                // Cold path
-                UnmanagedMemoryManager[] mems = new UnmanagedMemoryManager[ringCount + 1];
-                mems[0] = new(_inflightData, _inflightTail);
-                for (int i = 1; i < ringCount + 1; i++) mems[i] = rings[i];
-                
-                found = HandleWithInflight(connection, mems, out advanced);
-
-                if (found)  // a request was handled so inflight data can be discarded
-                    _inflightTail = 0;
-            }
-
-            totalAdvanced += advanced;
-
-            var currentRingIndex = GetCurrentRingIndex(in totalAdvanced, rings, out var currentRingAdvanced);
-
-            if (!found)
-            {
-                // \r\n\r\n not found, full headers are not yet available
-                // Copy the leftover rings data to the inflight buffer and read more
-                
-                // Copy current ring unused data
                 Buffer.MemoryCopy(
-                    rings[currentRingIndex].Ptr + currentRingAdvanced, // source
+                    rings[i].Ptr,
+                    _inflightData + _inflightTail,
+                    _length - _inflightTail,
+                    rings[i].Length);
+                _inflightTail += rings[i].Length;
+            }
+
+            for (int i = 0; i < rings.Length; i++)
+                connection.ReturnRing(rings[i].BufferId);
+
+            return false;
+        }
+
+        // When inflight data was prepended, advanced includes those bytes.
+        // Subtract them so advanced is relative to rings only.
+        int ringAdvanced = advanced - oldInflightTail;
+        int ringsTotalLength = CalculateRingsTotalLength(rings);
+
+        if (ringAdvanced < ringsTotalLength)
+        {
+            var currentRingIndex = GetCurrentRingIndex(in ringAdvanced, rings, out var currentRingAdvanced);
+
+            // Copy current ring unused data
+            Buffer.MemoryCopy(
+                rings[currentRingIndex].Ptr + currentRingAdvanced, // source
+                _inflightData + _inflightTail, // destination
+                _length - _inflightTail, // destinationSizeInBytes
+                rings[currentRingIndex].Length - currentRingAdvanced); // sourceBytesToCopy
+
+            _inflightTail += rings[currentRingIndex].Length - currentRingAdvanced;
+
+            // Copy untouched rings data
+            for (int i = currentRingIndex + 1; i < rings.Length; i++)
+            {
+                Buffer.MemoryCopy(
+                    rings[i].Ptr, // source
                     _inflightData + _inflightTail, // destination
                     _length - _inflightTail, // destinationSizeInBytes
-                    rings[currentRingIndex].Length - currentRingAdvanced); // sourceBytesToCopy
-                
-                _inflightTail += rings[currentRingIndex].Length - currentRingAdvanced;
-                
-                // Copy untouched rings data
-                for (int i = currentRingIndex + 1; i < rings.Length; i++)
-                {
-                    Buffer.MemoryCopy(
-                        rings[i].Ptr, // source
-                        _inflightData + _inflightTail, // destination
-                        _length - _inflightTail, // destinationSizeInBytes
-                        rings[i].Length); // sourceBytesToCopy
-                    
-                    _inflightTail += rings[i].Length;
-                }
+                    rings[i].Length); // sourceBytesToCopy
 
-                break;
+                _inflightTail += rings[i].Length;
             }
-
-            flushable = true;
-            
-            if (ringsTotalLength == advanced)
-                break;
         }
-            
+
         // Return the rings to the kernel, at this stage the request was either handled or the rings' data
         // has already been copied to the inflight buffer.
         for (int i = 0; i < rings.Length; i++) 
             connection.ReturnRing(rings[i].BufferId);
-
+        
         return flushable;
     }
     
-    private static bool HandleNoInflightSingleRing(Connection connection, ref ReadOnlySpan<byte> data, out int advanced)
+    [SkipLocalsInit][Pure][MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static unsafe bool ProcessRings(Connection connection, UnmanagedMemoryManager[] rings, out int advanced)
     {
-        // Hotpath, typically each ring contains a full request and inflight buffer isn't used
-        advanced = data.IndexOf("\r\n\r\n"u8);
-        var found = advanced != -1;
-
-        if (!found)
-        {
-            advanced = 0;
-            return false;
-        }
+        advanced = 0;
         
-        advanced += 4;
-
-        var requestSpan = data[..advanced];
+        int idx;
+        bool flushable = false;
         
-        // Handle the request
-        // ...
-        if(found) WriteResponse(connection); // Simulating writing the response after handling the received request
-
-        return found;
-    }
-
-    private static bool HandleNoInflightMultipleRings(Connection connection, UnmanagedMemoryManager[] rings, out int position)
-    {
-        var sequence = rings.ToReadOnlySequence();
-        var reader = new SequenceReader<byte>(sequence);
-        var found = reader.TryReadTo(out ReadOnlySequence<byte> headersSequence, "\r\n\r\n"u8);
-
-        if (!found)
+        // Single ring
+        if (rings.Length == 1)
         {
-            position = 0;
-            return false;
+            ReadOnlySpan<byte> singleRingData = new ReadOnlySpan<byte>(rings[0].Ptr, rings[0].Length);
+
+            while (true)
+            {
+                idx = singleRingData.IndexOf("\r\n\r\n"u8);
+                if (idx == -1) return flushable;
+
+                int idx4 = idx + 4;
+                advanced += idx4;
+                int space1 = singleRingData.IndexOf((byte)' ');
+                if (space1 == -1) return flushable;
+                int space2 = singleRingData[(space1 + 1)..].IndexOf((byte)' ');
+                if (space2 <= 0) return flushable;
+
+                ReadOnlySpan<byte> route = singleRingData[(space1 + 1)..(space1 + 1 + space2)];
+
+                WriteResponse(connection, route[1] == (byte)'j');
+                flushable = true;
+                if (idx4 >= singleRingData.Length) break;
+
+                singleRingData = singleRingData[idx4..];
+            }
+        }
+        else
+        {
+            var data = rings.ToReadOnlySequence();
+            var dataSpan = data.ToArray().AsSpan();
+
+            while (true)
+            {
+                idx = dataSpan.IndexOf("\r\n\r\n"u8);
+                if (idx == -1) return flushable;
+
+                int idx4 = idx + 4;
+                advanced += idx4;
+                int space1 = dataSpan.IndexOf((byte)' ');
+                if (space1 == -1) return flushable;
+                int space2 = dataSpan[(space1 + 1)..].IndexOf((byte)' ');
+                if (space2 <= 0) return flushable;
+
+                ReadOnlySpan<byte> route = dataSpan[(space1 + 1)..(space1 + 1 + space2)];
+
+                WriteResponse(connection, route[1] == (byte)'j');
+                flushable = true;
+                if (idx4 >= dataSpan.Length) break;
+
+                dataSpan = dataSpan[idx4..];
+            }
         }
 
-        position = reader.Position.GetInteger();
-
-        // Handle the request
-        // ...
-        if(found) WriteResponse(connection); // Simulating writing the response after handling the received request
-
-        return found;
-    }
-
-    private static bool HandleWithInflight(Connection connection, UnmanagedMemoryManager[] unmanagedMemories, out int position)
-    {
-        var sequence = unmanagedMemories.ToReadOnlySequence();
-        var reader = new SequenceReader<byte>(sequence);
-        var found = reader.TryReadTo(out ReadOnlySequence<byte> headersSequence, "\r\n\r\n"u8);
-
-        if (!found)
-        {
-            position = 0;
-            return false;
-        }
-
-        // Calculating how many bytes from the received rings were consumed
-        // inflight data is subtracted
-        position = reader.Position.GetInteger() - unmanagedMemories[0].Length;
-
-        // Handle the request
-        // ...
-        if(found) WriteResponse(connection); // Simulating writing the response after handling the received request
-
-        return found;
+        return true;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe void WriteResponse(Connection connection)
+    private static void WriteResponse(Connection connection, bool json)
     {
-        // Write the response
-        var msg =
-            "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
-        
-        connection.Write(msg);
+        if (json)
+        {
+            var tail = connection.WriteTail;
+            connection.Write(s_headersJson);
+            var date = DateHelper.HeaderBytes;
+            connection.Write(date);
+            
+            var utf8JsonWriter = t_writer ??= new Utf8JsonWriter(connection, new JsonWriterOptions { SkipValidation = true });
+            utf8JsonWriter.Reset(connection);
+            JsonSerializer.Serialize(utf8JsonWriter, new JsonMessage { Message = _jsonBody }, SerializerContext.JsonMessage);
+            
+            var contentLength = (int)utf8JsonWriter.BytesCommitted;
+            unsafe
+            {
+                byte* dst = connection.WriteBuffer + tail + 33;
+                int tens = contentLength / 10;
+                int ones = contentLength - tens * 10;
+
+                dst[0] = (byte)('0' + tens);
+                dst[1] = (byte)('0' + ones);
+            }
+        }
+        else
+        {
+            var tail = connection.WriteTail;
+            connection.Write(s_headersPlainText);
+            var date = DateHelper.HeaderBytes;
+            connection.Write(date);
+            connection.Write(s_plainTextBody);
+            
+            var contentLength = s_plainTextBody.Length;
+            
+            unsafe
+            {
+                byte* dst = connection.WriteBuffer + tail + 33;
+                int tens = contentLength / 10;
+                int ones = contentLength - tens * 10;
+
+                dst[0] = (byte)('0' + tens);
+                dst[1] = (byte)('0' + ones);
+            }
+        }
     }
     
     private static int GetCurrentRingIndex(in int totalAdvanced, UnmanagedMemoryManager[] rings, out int currentRingAdvanced)
@@ -252,3 +298,9 @@ internal sealed class ConnectionHandler
         return total;
     }
 }
+
+public struct JsonMessage { public string Message { get; set; } }
+
+[JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Serialization | JsonSourceGenerationMode.Metadata)]
+[JsonSerializable(typeof(JsonMessage))]
+public partial class JsonContext : JsonSerializerContext { }

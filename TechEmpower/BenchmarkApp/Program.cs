@@ -1,7 +1,9 @@
-﻿using URocket.Engine;
-using URocket.Engine.Configs;
+﻿using zerg.Engine;
+using zerg.Engine.Configs;
 
 namespace BenchmarkApp;
+
+// dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
 
 internal class Program
 {
