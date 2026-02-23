@@ -3,6 +3,8 @@ using URocket.Engine.Configs;
 
 namespace BenchmarkApp;
 
+// dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
+
 internal class Program
 {
     public static async Task Main(string[] args)

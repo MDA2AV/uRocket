@@ -12,6 +12,10 @@
         <SelfContained>true</SelfContained>
     </PropertyGroup>
 
+    <ItemGroup Condition="$(PublishAot) == 'true'">
+        <RuntimeHostConfigurationOption Include="System.Threading.ThreadPool.HillClimbing.Disable" Value="true" />
+    </ItemGroup>
+
     <ItemGroup>
       <ProjectReference Include="..\..\URocket\URocket.csproj" />
     </ItemGroup>

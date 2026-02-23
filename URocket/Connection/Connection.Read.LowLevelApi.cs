@@ -32,6 +32,18 @@ public sealed unsafe partial class Connection
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public RingItem PeekRing() => _recv.PeekSingle();
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void AdvanceRings(ushort quantity)
+    {
+        _recv.AdvanceHead(quantity);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void RetractRings(ushort quantity)
+    {
+        _recv.RetractHead(quantity);
+    }
     
     /// <summary>
     /// Enqueue a received buffer into the inbound ring and wake a waiter if present.

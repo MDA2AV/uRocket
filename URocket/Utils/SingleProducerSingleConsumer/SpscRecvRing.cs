@@ -89,6 +89,20 @@ public sealed class SpscRecvRing
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void AdvanceHead(ushort quantity)
+    {
+        long head = _head;
+        Volatile.Write(ref _head, head + quantity);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void RetractHead(ushort quantity)
+    {
+        long head = _head;
+        Volatile.Write(ref _head, head - quantity);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool IsEmpty()
         => Volatile.Read(ref _head) >= Volatile.Read(ref _tail);
 

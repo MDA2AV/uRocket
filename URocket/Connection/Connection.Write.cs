@@ -122,12 +122,14 @@ public unsafe partial class Connection
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal void CompleteFlush()
     {
-        // Complete waiter (reactor thread)
-        _flushSignal.SetResult(true);
-
-        // Allow next write/flush cycle
+        // Allow next write/flush cycle BEFORE signaling completion.
+        // SetResult can resume the handler synchronously (inline continuation),
+        // so barriers must be cleared first or the handler will see _flushInProgress == 1.
         Volatile.Write(ref _flushInProgress, 0);
         Volatile.Write(ref _flushArmed, 0);
+
+        // Resume waiter (may execute handler inline on this thread)
+        _flushSignal.SetResult(true);
     }
 
     // ----------------------
