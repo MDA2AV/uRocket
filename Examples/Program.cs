@@ -1,4 +1,4 @@
-﻿using Examples.ZeroAlloc.Advanced;
+﻿using Examples.ZeroAlloc.Basic;
 using zerg.Engine;
 using zerg.Engine.Configs;
 
@@ -34,10 +34,8 @@ internal class Program
             {
                 var connection = await engine.AcceptAsync(cts.Token);
                 if (connection is null) continue;
-                //_ = new ZeroAlloc_Advanced_SingleRing_ConnectionHandler().HandleConnectionAsync(connection);
-                _ = new ZeroAlloc_Advanced_MultiRings_ConnectionHandler().HandleConnectionAsync(connection);
                 //_ = Rings_as_ReadOnlySequence.HandleConnectionAsync(connection);
-                //_ = Rings_as_ReadOnlySpan.HandleConnectionAsync(connection);
+                _ = Rings_as_ReadOnlySpan.HandleConnectionAsync(connection);
             }
         }
         catch (OperationCanceledException)

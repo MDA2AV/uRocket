@@ -1,0 +1,1013 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>zerg – Architecture</title>
+    <link>https://urocket.dev/docs/architecture/</link>
+    <description>Recent content in Architecture on zerg</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    
+	  <atom:link href="https://urocket.dev/docs/architecture/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+      
+        
+      
+    
+    
+    <item>
+      <title>Reactor Pattern</title>
+      <link>https://urocket.dev/docs/architecture/reactor-pattern/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://urocket.dev/docs/architecture/reactor-pattern/</guid>
+      <description>
+        
+        
+        &lt;p&gt;zerg implements a classic &lt;strong&gt;reactor pattern&lt;/strong&gt; with a split-architecture design: one dedicated acceptor thread and N independent reactor threads.&lt;/p&gt;
+&lt;h2&gt;Overview&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;overview&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#overview&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;Clients ──TCP──▶ Acceptor Thread (1 io_uring, multishot accept)
+                      │
+                      │ round-robin fd distribution
+                      ▼
+              ┌───────┼───────┐
+              ▼       ▼       ▼
+          Reactor 0  Reactor 1  ...  Reactor N
+          (io_uring) (io_uring)      (io_uring)
+          (buf_ring) (buf_ring)      (buf_ring)
+          (conn map) (conn map)      (conn map)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Every thread in the system owns its own &lt;code&gt;io_uring&lt;/code&gt; instance. There is no shared ring, and no lock contention on the I/O path.&lt;/p&gt;
+&lt;h2&gt;Acceptor Thread&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;acceptor-thread&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#acceptor-thread&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The acceptor is responsible for one job: accepting new TCP connections.&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Creates a listening socket (IPv4 or IPv6 dual-stack, configurable via &lt;code&gt;IPVersion&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;Binds and listens with the configured &lt;code&gt;Backlog&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Sets up its own &lt;code&gt;io_uring&lt;/code&gt; and arms a &lt;strong&gt;multishot accept&lt;/strong&gt; SQE&lt;/li&gt;
+&lt;li&gt;Enters an event loop that:
+&lt;ul&gt;
+&lt;li&gt;Peeks a batch of CQEs (accepted file descriptors)&lt;/li&gt;
+&lt;li&gt;Sets &lt;code&gt;TCP_NODELAY&lt;/code&gt; on each accepted socket&lt;/li&gt;
+&lt;li&gt;Distributes fds to reactors in round-robin order via lock-free &lt;code&gt;ConcurrentQueue&amp;lt;int&amp;gt;&lt;/code&gt; (one per reactor)&lt;/li&gt;
+&lt;li&gt;Sleeps in &lt;code&gt;io_uring_wait_cqes()&lt;/code&gt; when idle&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Multishot accept means a single submission produces a CQE for every incoming connection without re-arming. The acceptor never allocates per-connection &amp;ndash; it just hands off integer file descriptors.&lt;/p&gt;
+&lt;h3&gt;Acceptor Event Loop&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;acceptor-event-loop&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#acceptor-event-loop&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;loop:
+    cqeCount = peek_batch_cqe(ring, cqes, batchSize)
+    if cqeCount == 0:
+        submit_and_wait_timeout(ring, timeout)
+        continue
+
+    for each cqe in cqes:
+        if cqe.res &amp;lt; 0:
+            log error, continue
+        clientFd = cqe.res
+        setsockopt(clientFd, TCP_NODELAY)
+        reactorQueues[nextReactor&amp;#43;&amp;#43; % reactorCount].Enqueue(clientFd)
+
+    cq_advance(ring, cqeCount)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2&gt;Reactor Threads&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;reactor-threads&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#reactor-threads&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Each reactor thread owns:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Its own &lt;code&gt;io_uring&lt;/code&gt; instance (created with &lt;code&gt;SINGLE_ISSUER | DEFER_TASKRUN&lt;/code&gt; by default)&lt;/li&gt;
+&lt;li&gt;A &lt;strong&gt;buffer ring&lt;/strong&gt; for zero-copy receive operations&lt;/li&gt;
+&lt;li&gt;A &lt;code&gt;Dictionary&amp;lt;int, Connection&amp;gt;&lt;/code&gt; mapping file descriptors to connection objects&lt;/li&gt;
+&lt;li&gt;Lock-free queues for receiving new fds from the acceptor and flush requests from handlers&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;Reactor Event Loop&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;reactor-event-loop&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#reactor-event-loop&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Each reactor runs a tight loop:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;loop:
+    // 1. Drain newly accepted connections
+    while reactorQueue.TryDequeue(out clientFd):
+        connection = pool.Get() or new Connection()
+        connection.SetFd(clientFd).SetReactor(this)
+        connections[clientFd] = connection
+        arm multishot_recv_select(clientFd, bufferGroupId)
+        notify application via Channel
+
+    // 2. Drain buffer returns
+    while returnQ.TryDequeue(out bufferId):
+        buf_ring_add(bufferRing, slab &amp;#43; bufferId * bufSize, bufSize, bufferId, mask, idx&amp;#43;&amp;#43;)
+    buf_ring_advance(bufferRing, returnCount)
+
+    // 3. Drain flush requests
+    while flushQ.TryDequeue(out flushFd):
+        connection = connections[flushFd]
+        prep_send(sqe, flushFd, connection.WriteBuffer, connection.WriteInFlight, 0)
+        submit pending sends
+
+    // 4. Process completions
+    cqeCount = peek_batch_cqe(ring, cqes, batchSize)
+    for each cqe:
+        kind = UdKindOf(cqe.user_data)
+        fd   = UdFdOf(cqe.user_data)
+
+        if kind == Recv:
+            if cqe.res &amp;lt;= 0: close connection, return buffer
+            else: enqueue RingItem to connection, wake handler
+
+        if kind == Send:
+            advance WriteHead, resubmit if partial, signal flush complete
+
+        if kind == Cancel:
+            handle cancellation completion
+
+    cq_advance(ring, cqeCount)
+    submit_and_wait_timeout(ring, timeout)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2&gt;Connection Distribution&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;connection-distribution&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#connection-distribution&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The acceptor distributes connections using a simple round-robin counter:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;reactorIndex = acceptCount&amp;#43;&amp;#43; % reactorCount&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Each reactor gets approximately equal load. The distribution is via &lt;code&gt;ConcurrentQueue&amp;lt;int&amp;gt;&lt;/code&gt; &amp;ndash; one queue per reactor &amp;ndash; so the acceptor never blocks waiting for a reactor.&lt;/p&gt;
+&lt;h2&gt;Application Integration&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;application-integration&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#application-integration&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;After a reactor registers a new connection, it pushes a &lt;code&gt;ConnectionItem&lt;/code&gt; (reactor ID + client fd) into an unbounded &lt;code&gt;Channel&amp;lt;ConnectionItem&amp;gt;&lt;/code&gt;. The &lt;code&gt;Engine.AcceptAsync()&lt;/code&gt; method reads from this channel, returning fully-registered &lt;code&gt;Connection&lt;/code&gt; objects to the application.&lt;/p&gt;
+&lt;p&gt;This means by the time your handler receives a connection:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;The connection is already assigned to a reactor&lt;/li&gt;
+&lt;li&gt;Multishot recv is already armed&lt;/li&gt;
+&lt;li&gt;The buffer ring is ready to receive data&lt;/li&gt;
+&lt;li&gt;You can immediately call &lt;code&gt;ReadAsync()&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+      </description>
+    </item>
+    
+    <item>
+      <title>io_uring</title>
+      <link>https://urocket.dev/docs/architecture/io-uring/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://urocket.dev/docs/architecture/io-uring/</guid>
+      <description>
+        
+        
+        &lt;p&gt;&lt;code&gt;io_uring&lt;/code&gt; is a Linux kernel interface for asynchronous I/O. zerg uses it as its sole I/O mechanism &amp;ndash; there are no &lt;code&gt;epoll&lt;/code&gt;, &lt;code&gt;kqueue&lt;/code&gt;, or &lt;code&gt;libuv&lt;/code&gt; fallbacks.&lt;/p&gt;
+&lt;h2&gt;How io_uring Works&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;how-io_uring-works&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#how-io_uring-works&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;&lt;code&gt;io_uring&lt;/code&gt; provides two ring buffers shared between userspace and the kernel:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Submission Queue (SQ)&lt;/strong&gt;: userspace writes I/O requests (SQEs) here&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Completion Queue (CQ)&lt;/strong&gt;: kernel writes I/O results (CQEs) here&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;The typical flow is:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Acquire an SQE slot from the SQ&lt;/li&gt;
+&lt;li&gt;Prepare the SQE (what operation, which fd, which buffer)&lt;/li&gt;
+&lt;li&gt;Submit the SQ to the kernel&lt;/li&gt;
+&lt;li&gt;Wait for or peek at CQEs in the CQ&lt;/li&gt;
+&lt;li&gt;Process results and advance the CQ head&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Because both queues are in shared memory, the kernel can process I/O without copying data back through syscall boundaries. In the best case (&lt;code&gt;SQPOLL&lt;/code&gt; mode), even the submit step doesn&amp;rsquo;t require a syscall.&lt;/p&gt;
+&lt;h2&gt;Features Used by zerg&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;features-used-by-zerg&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#features-used-by-zerg&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;h3&gt;Multishot Accept&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;multishot-accept&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#multishot-accept&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_prep_multishot_accept&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;sqe&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;listenFd&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;SOCK_NONBLOCK&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;A single submission arms the kernel to produce one CQE per accepted connection indefinitely. The acceptor thread never re-arms &amp;ndash; it just processes accept completions as they arrive.&lt;/p&gt;
+&lt;p&gt;Each CQE contains:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;cqe-&amp;gt;res&lt;/code&gt;: the new client file descriptor (or negative errno)&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;cqe-&amp;gt;flags &amp;amp; IORING_CQE_F_MORE&lt;/code&gt;: indicates more completions will follow&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;Multishot Recv with Buffer Selection&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;multishot-recv-with-buffer-selection&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#multishot-recv-with-buffer-selection&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_prep_recv_multishot_select&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;sqe&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;clientFd&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;bufferGroupId&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;mi&#34;&gt;0&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;A single submission arms the kernel to receive data for a connection. Each time data arrives, the kernel:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Picks an available buffer from the registered buffer ring&lt;/li&gt;
+&lt;li&gt;Copies received data into that buffer&lt;/li&gt;
+&lt;li&gt;Produces a CQE with the buffer ID in the flags&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;The reactor can identify which buffer was used via:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;bufferId&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;nf&#34;&gt;shim_cqe_buffer_id&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;cqe&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;bufferPtr&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;slab&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;+&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;bufferId&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;*&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;bufferSize&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;bytesReceived&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;cqe&lt;/span&gt;&lt;span class=&#34;o&#34;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;res&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;This eliminates per-recv buffer allocation &amp;ndash; the kernel selects from a pre-registered pool.&lt;/p&gt;
+&lt;h3&gt;Buffer Rings (Provided Buffers)&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;buffer-rings-provided-buffers&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#buffer-rings-provided-buffers&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Buffer rings are a pool of pre-allocated buffers registered with the kernel:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;// Setup: create and register the ring
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;br&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;nf&#34;&gt;shim_setup_buf_ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;entries&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;bgid&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;mi&#34;&gt;0&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ret&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;// Populate: add buffers to the ring
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;k&#34;&gt;for&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;i&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;mi&#34;&gt;0&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;i&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;&amp;lt;&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;entries&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;i&lt;/span&gt;&lt;span class=&#34;o&#34;&gt;++&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;)&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;nf&#34;&gt;shim_buf_ring_add&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;br&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;slab&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;+&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;i&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;*&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;size&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;size&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;i&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;mask&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;i&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_buf_ring_advance&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;br&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;entries&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;// After consuming a buffer: return it
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_buf_ring_add&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;br&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;slab&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;+&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;bid&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;*&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;size&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;size&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;bid&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;mask&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;idx&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_buf_ring_advance&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;br&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;mi&#34;&gt;1&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;See &lt;a href=&#34;../buffer-rings/&#34;&gt;Buffer Rings&lt;/a&gt; for the full lifecycle.&lt;/p&gt;
+&lt;h3&gt;SINGLE_ISSUER&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;single_issuer&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#single_issuer&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;flags&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;|=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IORING_SETUP_SINGLE_ISSUER&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Tells the kernel that only one thread will submit to this ring. The kernel can skip locking on the SQ, improving submission throughput. This matches zerg&amp;rsquo;s reactor model perfectly since each reactor thread is the sole submitter to its ring.&lt;/p&gt;
+&lt;h3&gt;DEFER_TASKRUN&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;defer_taskrun&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#defer_taskrun&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;flags&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;|=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IORING_SETUP_DEFER_TASKRUN&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Defers kernel task_work execution until the next time userspace enters the ring. This reduces latency spikes from kernel work being done in interrupt context and improves &lt;code&gt;async/await&lt;/code&gt; integration since completions arrive at predictable points.&lt;/p&gt;
+&lt;h3&gt;SQPOLL (Optional)&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;sqpoll-optional&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#sqpoll-optional&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;flags&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;|=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IORING_SETUP_SQPOLL&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;|&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IORING_SETUP_SQ_AFF&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Creates a kernel thread that continuously polls the SQ for new submissions. This eliminates the &lt;code&gt;io_uring_enter()&lt;/code&gt; syscall for submitting work. The tradeoff is a dedicated CPU core spinning on the SQ.&lt;/p&gt;
+&lt;p&gt;Enable SQPOLL when:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;You have spare CPU cores&lt;/li&gt;
+&lt;li&gt;You need the absolute lowest submission latency&lt;/li&gt;
+&lt;li&gt;Your workload has consistent, high-frequency submissions&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;Submit-and-Wait&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;submit-and-wait&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#submit-and-wait&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;zerg&amp;rsquo;s reactor loop uses a combined submit-and-wait call:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_submit_and_wait_timeout&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;cqes&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;waitNr&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;&amp;amp;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;timeout&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;This is a single syscall that:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Submits all pending SQEs&lt;/li&gt;
+&lt;li&gt;Waits for at least one CQE (or timeout)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;Combining submit + wait into one call reduces syscall overhead compared to separate &lt;code&gt;submit()&lt;/code&gt; + &lt;code&gt;wait_cqe()&lt;/code&gt; calls.&lt;/p&gt;
+&lt;h3&gt;CQE Batching&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;cqe-batching&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#cqe-batching&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-c&#34; data-lang=&#34;c&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;count&lt;/span&gt; &lt;span class=&#34;o&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;nf&#34;&gt;shim_peek_batch_cqe&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;cqes&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;maxBatch&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;// process all CQEs...
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nf&#34;&gt;shim_cq_advance&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;count&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Instead of processing one CQE at a time, the reactor peeks a batch and processes them all before advancing the CQ head. This amortizes the CQ head update across multiple completions.&lt;/p&gt;
+&lt;h2&gt;User Data Token Packing&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;user-data-token-packing&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#user-data-token-packing&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;zerg packs a kind tag and file descriptor into the 64-bit &lt;code&gt;user_data&lt;/code&gt; field of each SQE:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;// Pack: upper 32 bits = kind, lower 32 bits = fd&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;kt&#34;&gt;ulong&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;ud&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;PackUd&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;UdKind&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;Recv&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;clientFd&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;c1&#34;&gt;// Unpack from CQE&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;UdKind&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;kind&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;UdKindOf&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;cqe&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;user_data&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;  &lt;span class=&#34;c1&#34;&gt;// Recv, Send, Accept, Cancel&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;fd&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;UdFdOf&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;cqe&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;-&amp;gt;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;user_data&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;This lets the reactor immediately dispatch CQEs to the right handler without any lookup table.&lt;/p&gt;
+&lt;h2&gt;Native Interop&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;native-interop&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#native-interop&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;All &lt;code&gt;io_uring&lt;/code&gt; operations go through a C shim library (&lt;code&gt;liburingshim.so&lt;/code&gt;) that wraps &lt;code&gt;liburing&lt;/code&gt;. See &lt;a href=&#34;../../internals/native-interop/&#34;&gt;Native Interop&lt;/a&gt; for the full P/Invoke surface.&lt;/p&gt;
+
+      </description>
+    </item>
+    
+    <item>
+      <title>Buffer Rings</title>
+      <link>https://urocket.dev/docs/architecture/buffer-rings/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://urocket.dev/docs/architecture/buffer-rings/</guid>
+      <description>
+        
+        
+        &lt;p&gt;Buffer rings (also called &amp;ldquo;provided buffers&amp;rdquo;) are a core &lt;code&gt;io_uring&lt;/code&gt; feature that zerg uses for zero-copy receive operations. Instead of userspace providing a buffer with each recv call, the kernel picks from a pre-registered pool.&lt;/p&gt;
+&lt;h2&gt;How Buffer Rings Work&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;how-buffer-rings-work&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#how-buffer-rings-work&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;h3&gt;Setup&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;setup&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#setup&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;When a reactor starts, it creates a buffer ring and populates it with pre-allocated buffers:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;1. Allocate a contiguous slab of unmanaged memory (64-byte aligned)
+2. Register the buffer ring with io_uring:
+     br = shim_setup_buf_ring(ring, entries, bgid, 0, &amp;amp;ret)
+3. Divide the slab into fixed-size chunks and add each to the ring:
+     for i in 0..entries:
+         shim_buf_ring_add(br, slab &amp;#43; i * bufSize, bufSize, i, mask, i)
+4. Publish all buffers to the kernel:
+     shim_buf_ring_advance(br, entries)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Each buffer is identified by a 16-bit &lt;code&gt;bufferId&lt;/code&gt; (0 to &lt;code&gt;BufferRingEntries - 1&lt;/code&gt;). The slab is a single contiguous allocation so the address of any buffer is &lt;code&gt;slab + bufferId * RecvBufferSize&lt;/code&gt;.&lt;/p&gt;
+&lt;h3&gt;Receive&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;receive&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#receive&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;When multishot recv completes for a connection:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;CQE arrives:
+    cqe-&amp;gt;res    = bytes received (or negative errno)
+    cqe-&amp;gt;flags  = IORING_CQE_F_BUFFER | (bufferId &amp;lt;&amp;lt; 16)
+
+Reactor extracts:
+    bufferId = shim_cqe_buffer_id(cqe)
+    ptr      = slab &amp;#43; bufferId * bufSize
+    length   = cqe-&amp;gt;res&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;The kernel has already written the received data into the selected buffer. The reactor creates a &lt;code&gt;RingItem(ptr, length, bufferId)&lt;/code&gt; and enqueues it to the connection&amp;rsquo;s receive ring.&lt;/p&gt;
+&lt;h3&gt;Consumption&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;consumption&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#consumption&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;The application handler drains &lt;code&gt;RingItem&lt;/code&gt;s from the connection:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;k&#34;&gt;while&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;connection&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;TryGetRing&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;result&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;TailSnapshot&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;k&#34;&gt;out&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;RingItem&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;))&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;p&#34;&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;n&#34;&gt;ReadOnlySpan&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&#34;kt&#34;&gt;byte&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;data&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;AsSpan&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;();&lt;/span&gt;  &lt;span class=&#34;c1&#34;&gt;// zero-copy view&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;c1&#34;&gt;// process data...&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;n&#34;&gt;connection&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ReturnRing&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ring&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;BufferId&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;      &lt;span class=&#34;c1&#34;&gt;// return to kernel&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;p&#34;&gt;}&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h3&gt;Return&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;return&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#return&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;When the handler calls &lt;code&gt;ReturnRing(bufferId)&lt;/code&gt;, the buffer ID is enqueued to the reactor&amp;rsquo;s return queue (an MPSC queue). On the next loop iteration, the reactor returns all queued buffers to the kernel:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;while returnQ.TryDequeue(out bufferId):
+    shim_buf_ring_add(br, slab &amp;#43; bufferId * bufSize, bufSize, bufferId, mask, idx&amp;#43;&amp;#43;)
+shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2&gt;Buffer Lifecycle&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;buffer-lifecycle&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#buffer-lifecycle&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;                ┌──────────────────────────────────────────┐
+                │              Buffer Ring                   │
+                │  ┌─────┬─────┬─────┬─────┬─────┐         │
+                │  │ B0  │ B1  │ B2  │ ... │ Bn  │         │
+                │  └──┬──┴──┬──┴──┬──┴─────┴──┬──┘         │
+                └─────┼─────┼─────┼───────────┼────────────┘
+                      │     │     │           │
+      ┌───────────────┘     │     │           └──────────────┐
+      ▼                     ▼     ▼                          ▼
+  ┌────────┐          ┌────────┐ ┌────────┐           ┌────────┐
+  │ Kernel │          │ Kernel │ │  User  │           │  User  │
+  │ (free) │          │ (recv) │ │ (proc) │           │ (done) │
+  └────────┘          └───┬────┘ └───┬────┘           └───┬────┘
+                          │          │                    │
+                          │ CQE      │ TryGetRing()       │ ReturnRing()
+                          ▼          ▼                    ▼
+                    ┌──────────┐ ┌──────────┐      ┌──────────┐
+                    │ RingItem │ │ Handler  │      │ Return Q │
+                    │ enqueued │ │ draining │      │ → kernel │
+                    └──────────┘ └──────────┘      └──────────┘&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;A buffer transitions through these states:&lt;/p&gt;
+&lt;table&gt;
+  &lt;thead&gt;
+      &lt;tr&gt;
+          &lt;th&gt;State&lt;/th&gt;
+          &lt;th&gt;Owner&lt;/th&gt;
+          &lt;th&gt;Description&lt;/th&gt;
+      &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;strong&gt;Free&lt;/strong&gt;&lt;/td&gt;
+          &lt;td&gt;Kernel&lt;/td&gt;
+          &lt;td&gt;Available in the buffer ring for the next recv&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;strong&gt;In-flight&lt;/strong&gt;&lt;/td&gt;
+          &lt;td&gt;Kernel&lt;/td&gt;
+          &lt;td&gt;Selected by kernel for an active recv operation&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;strong&gt;Enqueued&lt;/strong&gt;&lt;/td&gt;
+          &lt;td&gt;Reactor&lt;/td&gt;
+          &lt;td&gt;Data received, &lt;code&gt;RingItem&lt;/code&gt; pushed to connection&amp;rsquo;s SPSC ring&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;strong&gt;Processing&lt;/strong&gt;&lt;/td&gt;
+          &lt;td&gt;Handler&lt;/td&gt;
+          &lt;td&gt;Handler has dequeued the &lt;code&gt;RingItem&lt;/code&gt; and is reading the data&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;strong&gt;Returning&lt;/strong&gt;&lt;/td&gt;
+          &lt;td&gt;Return queue&lt;/td&gt;
+          &lt;td&gt;Handler called &lt;code&gt;ReturnRing()&lt;/code&gt;, buffer ID queued for return&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;strong&gt;Returned&lt;/strong&gt;&lt;/td&gt;
+          &lt;td&gt;Kernel&lt;/td&gt;
+          &lt;td&gt;Reactor added buffer back to the ring via &lt;code&gt;buf_ring_add&lt;/code&gt; + &lt;code&gt;advance&lt;/code&gt;&lt;/td&gt;
+      &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h2&gt;Configuration&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;configuration&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#configuration&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;table&gt;
+  &lt;thead&gt;
+      &lt;tr&gt;
+          &lt;th&gt;Config Property&lt;/th&gt;
+          &lt;th&gt;Default&lt;/th&gt;
+          &lt;th&gt;Impact&lt;/th&gt;
+      &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;code&gt;BufferRingEntries&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;16384&lt;/td&gt;
+          &lt;td&gt;Total buffers per reactor. Must be power of two. More buffers = more concurrent in-flight receives.&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;code&gt;RecvBufferSize&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;32 KB&lt;/td&gt;
+          &lt;td&gt;Size of each buffer. Larger = fewer buffers needed for big payloads, but more memory per buffer.&lt;/td&gt;
+      &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;&lt;strong&gt;Memory formula:&lt;/strong&gt; &lt;code&gt;BufferRingEntries * RecvBufferSize&lt;/code&gt; per reactor.&lt;/p&gt;
+&lt;p&gt;With defaults: 16384 * 32 KB = &lt;strong&gt;512 MB per reactor&lt;/strong&gt;.&lt;/p&gt;
+&lt;h2&gt;Important Rules&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;important-rules&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#important-rules&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Always return buffers.&lt;/strong&gt; Every buffer obtained via &lt;code&gt;TryGetRing()&lt;/code&gt; or &lt;code&gt;GetAllSnapshotRings()&lt;/code&gt; must eventually be returned via &lt;code&gt;ReturnRing()&lt;/code&gt; or &lt;code&gt;ReturnRingBuffers()&lt;/code&gt;. Leaked buffers deplete the pool and eventually stall receives.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Don&amp;rsquo;t access buffer data after returning.&lt;/strong&gt; Once &lt;code&gt;ReturnRing(bufferId)&lt;/code&gt; is called, the kernel may reuse that buffer immediately. Any pointer or span referencing the buffer becomes invalid.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Return from the handler thread.&lt;/strong&gt; &lt;code&gt;ReturnRing()&lt;/code&gt; enqueues to an MPSC queue that the reactor drains. It&amp;rsquo;s safe to call from any thread, but typically called from the handler after processing.&lt;/p&gt;
+&lt;/li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;Buffer ring exhaustion.&lt;/strong&gt; If all buffers are in-flight or held by handlers, new recv operations will fail. The reactor handles this gracefully &amp;ndash; multishot recv CQEs may stop arriving until buffers are returned. If the connection&amp;rsquo;s SPSC ring is full (1024 items), the connection is closed as a safety measure.&lt;/p&gt;
+&lt;/li&gt;
+&lt;/ol&gt;
+
+      </description>
+    </item>
+    
+    <item>
+      <title>Connection Lifecycle</title>
+      <link>https://urocket.dev/docs/architecture/connection-lifecycle/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://urocket.dev/docs/architecture/connection-lifecycle/</guid>
+      <description>
+        
+        
+        &lt;p&gt;A connection in zerg goes through a well-defined lifecycle: accept, register, use, close, and optionally return to pool.&lt;/p&gt;
+&lt;h2&gt;Lifecycle Stages&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;lifecycle-stages&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#lifecycle-stages&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;                    Accept (Acceptor)
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │  Distribute  │  round-robin to reactor
+                  │  via queue   │
+                  └──────┬───────┘
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │   Register   │  arm multishot recv
+                  │  in reactor  │  add to connections dict
+                  └──────┬───────┘
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │   Notify     │  push to Channel
+                  │  application │  AcceptAsync() returns
+                  └──────┬───────┘
+                         │
+                         ▼
+                  ┌──────────────┐
+              ┌──▶│  ReadAsync   │◀─┐
+              │   │  &amp;#43; process   │  │  read/write loop
+              │   │  &amp;#43; Write     │  │
+              │   │  &amp;#43; FlushAsync│──┘
+              │   └──────┬───────┘
+              │          │
+              │          ▼ (IsClosed or error)
+              │   ┌──────────────┐
+              │   │    Close     │  connection removed
+              │   │   &amp;#43; cleanup  │  from reactor dict
+              │   └──────┬───────┘
+              │          │
+              │          ▼
+              │   ┌──────────────┐
+              └───│  Pool/Reuse  │  Clear(), return to pool
+                  │  (optional)  │  generation incremented
+                  └──────────────┘&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2&gt;Accept Phase&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;accept-phase&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#accept-phase&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;ol&gt;
+&lt;li&gt;The acceptor&amp;rsquo;s &lt;code&gt;io_uring&lt;/code&gt; delivers a CQE with the new client fd&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;TCP_NODELAY&lt;/code&gt; is set on the socket&lt;/li&gt;
+&lt;li&gt;The fd is enqueued to the target reactor&amp;rsquo;s &lt;code&gt;ConcurrentQueue&amp;lt;int&amp;gt;&lt;/code&gt;&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;Registration Phase&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;registration-phase&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#registration-phase&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;On its next loop iteration, the reactor:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Dequeues the fd from its queue&lt;/li&gt;
+&lt;li&gt;Creates or retrieves a &lt;code&gt;Connection&lt;/code&gt; from the pool&lt;/li&gt;
+&lt;li&gt;Calls &lt;code&gt;connection.SetFd(clientFd).SetReactor(this)&lt;/code&gt; which:
+&lt;ul&gt;
+&lt;li&gt;Assigns the file descriptor&lt;/li&gt;
+&lt;li&gt;Clears the &lt;code&gt;_closed&lt;/code&gt; flag&lt;/li&gt;
+&lt;li&gt;Resets &lt;code&gt;_pending&lt;/code&gt; and &lt;code&gt;_armed&lt;/code&gt; flags&lt;/li&gt;
+&lt;li&gt;Resets the &lt;code&gt;_readSignal&lt;/code&gt; completion source&lt;/li&gt;
+&lt;li&gt;Clears the SPSC receive ring&lt;/li&gt;
+&lt;/ul&gt;
+&lt;/li&gt;
+&lt;li&gt;Stores the connection in &lt;code&gt;connections[clientFd]&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Arms multishot recv with buffer selection for the fd&lt;/li&gt;
+&lt;li&gt;Pushes a &lt;code&gt;ConnectionItem&lt;/code&gt; to the &lt;code&gt;Channel&amp;lt;ConnectionItem&amp;gt;&lt;/code&gt; for &lt;code&gt;AcceptAsync()&lt;/code&gt;&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;Active Phase&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;active-phase&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#active-phase&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The connection is now active. The handler can:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;ReadAsync()&lt;/strong&gt; &amp;ndash; park until data arrives, then drain ring items&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Write()&lt;/strong&gt; &amp;ndash; stage bytes into the unmanaged write slab&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;FlushAsync()&lt;/strong&gt; &amp;ndash; tell the reactor to send staged bytes&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;ResetRead()&lt;/strong&gt; &amp;ndash; prepare for the next read cycle&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;See &lt;a href=&#34;../../api-reference/connection-read/&#34;&gt;Connection Read&lt;/a&gt; and &lt;a href=&#34;../../api-reference/connection-write/&#34;&gt;Connection Write&lt;/a&gt; for API details.&lt;/p&gt;
+&lt;h2&gt;Close Phase&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;close-phase&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#close-phase&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;A connection closes when:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Client disconnects&lt;/strong&gt;: recv CQE arrives with &lt;code&gt;res == 0&lt;/code&gt; (EOF) or &lt;code&gt;res &amp;lt; 0&lt;/code&gt; (error)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Ring overflow&lt;/strong&gt;: the SPSC recv ring is full (1024 items) &amp;ndash; the connection is force-closed as a safety measure&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Application closes&lt;/strong&gt;: the handler exits the read loop&lt;/li&gt;
+&lt;/ul&gt;
+&lt;p&gt;When the reactor detects a close (recv CQE with &lt;code&gt;res &amp;lt;= 0&lt;/code&gt;):&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;Returns any buffer used by the final CQE to the buffer ring&lt;/li&gt;
+&lt;li&gt;Removes the connection from the reactor&amp;rsquo;s &lt;code&gt;connections&lt;/code&gt; dictionary&lt;/li&gt;
+&lt;li&gt;Marks the connection as closed (&lt;code&gt;_closed = 1&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;Wakes any waiting &lt;code&gt;ReadAsync()&lt;/code&gt; so the handler sees &lt;code&gt;IsClosed == true&lt;/code&gt;&lt;/li&gt;
+&lt;/ol&gt;
+&lt;h2&gt;Pooling and Reuse&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;pooling-and-reuse&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#pooling-and-reuse&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Connections can be pooled to avoid repeated allocation. The &lt;code&gt;Connection&lt;/code&gt; class supports two reset methods:&lt;/p&gt;
+&lt;h3&gt;&lt;code&gt;Clear()&lt;/code&gt; &amp;ndash; Safe Reset&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;clear--safe-reset&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#clear--safe-reset&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;ul&gt;
+&lt;li&gt;Increments &lt;code&gt;_generation&lt;/code&gt; to invalidate in-flight &lt;code&gt;ValueTask&lt;/code&gt; tokens&lt;/li&gt;
+&lt;li&gt;Publishes &lt;code&gt;_closed = 1&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Cancels any waiting read or flush waiter with &lt;code&gt;OperationCanceledException&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Resets all write buffer state (WriteHead, WriteTail = 0)&lt;/li&gt;
+&lt;li&gt;Resets both &lt;code&gt;_readSignal&lt;/code&gt; and &lt;code&gt;_flushSignal&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Clears the SPSC receive ring&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;&lt;code&gt;Clear2()&lt;/code&gt; &amp;ndash; Fast Reset&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;clear2--fast-reset&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#clear2--fast-reset&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;ul&gt;
+&lt;li&gt;Increments &lt;code&gt;_generation&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Publishes &lt;code&gt;_closed = 1&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Clears the receive ring and resets completion state&lt;/li&gt;
+&lt;li&gt;Does &lt;strong&gt;not&lt;/strong&gt; cancel waiters (assumes they&amp;rsquo;ve already exited)&lt;/li&gt;
+&lt;li&gt;Faster than &lt;code&gt;Clear()&lt;/code&gt; for hot-path pooling&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3&gt;Generation Counter&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;generation-counter&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#generation-counter&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;The &lt;code&gt;_generation&lt;/code&gt; counter (incremented on every reuse) serves as the &lt;code&gt;ValueTask&lt;/code&gt; token. If a stale &lt;code&gt;ReadAsync()&lt;/code&gt; completes after the connection has been reused, &lt;code&gt;GetResult()&lt;/code&gt; detects the mismatched token and returns &lt;code&gt;ReadResult.Closed()&lt;/code&gt; instead of delivering stale data. This prevents use-after-free bugs in the async machinery.&lt;/p&gt;
+&lt;h2&gt;Connection Object Layout&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;connection-object-layout&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#connection-object-layout&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;kd&#34;&gt;partial&lt;/span&gt; &lt;span class=&#34;k&#34;&gt;class&lt;/span&gt; &lt;span class=&#34;nc&#34;&gt;Connection&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;:&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IBufferWriter&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&#34;kt&#34;&gt;byte&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IValueTaskSource&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ReadResult&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IValueTaskSource&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;IDisposable&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;p&#34;&gt;{&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;c1&#34;&gt;// Identity&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;ClientFd&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;n&#34;&gt;Engine&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;Reactor&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;Reactor&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_generation&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;c1&#34;&gt;// Read state&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;n&#34;&gt;SpscRecvRing&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_recv&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;           &lt;span class=&#34;c1&#34;&gt;// capacity: 1024&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;n&#34;&gt;ManualResetValueTaskSourceCore&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;ReadResult&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_readSignal&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_armed&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_pending&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_closed&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;c1&#34;&gt;// Write state&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;byte&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;*&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;WriteBuffer&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;            &lt;span class=&#34;c1&#34;&gt;// 64-byte aligned unmanaged slab&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;WriteHead&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;WriteTail&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;WriteInFlight&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;SendInflight&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;             &lt;span class=&#34;c1&#34;&gt;// reactor-owned flag&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;n&#34;&gt;ManualResetValueTaskSourceCore&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;lt;&lt;/span&gt;&lt;span class=&#34;kt&#34;&gt;bool&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;&amp;gt;&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_flushSignal&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;    &lt;span class=&#34;kt&#34;&gt;int&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_flushArmed&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_flushInProgress&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;p&#34;&gt;}&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+
+      </description>
+    </item>
+    
+    <item>
+      <title>Threading Model</title>
+      <link>https://urocket.dev/docs/architecture/threading-model/</link>
+      <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
+      
+      <guid>https://urocket.dev/docs/architecture/threading-model/</guid>
+      <description>
+        
+        
+        &lt;p&gt;zerg uses a fixed set of dedicated threads with strict ownership rules. Every piece of mutable state is owned by exactly one thread, and all cross-thread communication happens through lock-free queues with well-defined memory ordering.&lt;/p&gt;
+&lt;h2&gt;Thread Layout&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;thread-layout&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#thread-layout&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;┌─────────────────┐
+│  Acceptor Thread │  1 thread
+│  (io_uring)      │  Accepts connections, distributes fds
+└────────┬────────┘
+         │ ConcurrentQueue&amp;lt;int&amp;gt; per reactor
+         ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│  Reactor 0    │  │  Reactor 1    │  │  Reactor N    │  N threads
+│  (io_uring)   │  │  (io_uring)   │  │  (io_uring)   │  Event loops
+│  (buf_ring)   │  │  (buf_ring)   │  │  (buf_ring)   │
+│  (conn dict)  │  │  (conn dict)  │  │  (conn dict)  │
+└───────┬───────┘  └───────┬───────┘  └───────┬───────┘
+        │                  │                  │
+        ▼                  ▼                  ▼
+┌───────────────┐  ┌───────────────┐  ┌───────────────┐
+│  Handler Tasks│  │  Handler Tasks│  │  Handler Tasks│  Task pool
+│  (async/await)│  │  (async/await)│  │  (async/await)│  User code
+└───────────────┘  └───────────────┘  └───────────────┘&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h3&gt;Thread Count&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;thread-count&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#thread-count&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Total threads = 1 (acceptor) + N (reactors), where N = &lt;code&gt;EngineOptions.ReactorCount&lt;/code&gt;.&lt;/p&gt;
+&lt;p&gt;Handler tasks run on the .NET thread pool and are not dedicated threads. Multiple handler tasks may be active per reactor, but each connection&amp;rsquo;s &lt;code&gt;ReadAsync&lt;/code&gt;/&lt;code&gt;FlushAsync&lt;/code&gt; enforces single-waiter semantics.&lt;/p&gt;
+&lt;h2&gt;Ownership Rules&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;ownership-rules&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#ownership-rules&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;table&gt;
+  &lt;thead&gt;
+      &lt;tr&gt;
+          &lt;th&gt;State&lt;/th&gt;
+          &lt;th&gt;Owner&lt;/th&gt;
+          &lt;th&gt;Accessed By&lt;/th&gt;
+      &lt;/tr&gt;
+  &lt;/thead&gt;
+  &lt;tbody&gt;
+      &lt;tr&gt;
+          &lt;td&gt;Acceptor &lt;code&gt;io_uring&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;Acceptor thread&lt;/td&gt;
+          &lt;td&gt;Acceptor only&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;Reactor &lt;code&gt;io_uring&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;Reactor thread&lt;/td&gt;
+          &lt;td&gt;Reactor only&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;Buffer ring&lt;/td&gt;
+          &lt;td&gt;Reactor thread&lt;/td&gt;
+          &lt;td&gt;Reactor (add/advance), handler (ReturnRing via MPSC queue)&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;code&gt;connections&lt;/code&gt; dict&lt;/td&gt;
+          &lt;td&gt;Reactor thread&lt;/td&gt;
+          &lt;td&gt;Reactor only&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;Connection read state (&lt;code&gt;_recv&lt;/code&gt;, &lt;code&gt;_armed&lt;/code&gt;, etc.)&lt;/td&gt;
+          &lt;td&gt;Split&lt;/td&gt;
+          &lt;td&gt;Reactor produces, handler consumes&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;Connection write slab&lt;/td&gt;
+          &lt;td&gt;Handler&lt;/td&gt;
+          &lt;td&gt;Handler writes, reactor reads during flush&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;&lt;code&gt;SendInflight&lt;/code&gt; flag&lt;/td&gt;
+          &lt;td&gt;Reactor thread&lt;/td&gt;
+          &lt;td&gt;Reactor writes (Volatile), handler reads&lt;/td&gt;
+      &lt;/tr&gt;
+  &lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h2&gt;Cross-Thread Communication&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;cross-thread-communication&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#cross-thread-communication&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;All cross-thread data flow uses lock-free queues:&lt;/p&gt;
+&lt;h3&gt;Acceptor → Reactor: New Connections&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;acceptor--reactor-new-connections&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#acceptor--reactor-new-connections&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;ConcurrentQueue&amp;lt;int&amp;gt; ReactorQueues[reactorId]&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;The acceptor enqueues integer file descriptors. Each reactor drains its queue at the start of every loop iteration. &lt;code&gt;.NET ConcurrentQueue&lt;/code&gt; provides full thread-safety.&lt;/p&gt;
+&lt;h3&gt;Handler → Reactor: Buffer Returns&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;handler--reactor-buffer-returns&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#handler--reactor-buffer-returns&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;MpscUshortQueue returnQ&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;When a handler calls &lt;code&gt;connection.ReturnRing(bufferId)&lt;/code&gt;, the &lt;code&gt;ushort&lt;/code&gt; buffer ID is enqueued to the reactor&amp;rsquo;s MPSC return queue. The reactor drains this queue and returns buffers to the kernel buffer ring.&lt;/p&gt;
+&lt;h3&gt;Handler → Reactor: Flush Requests&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;handler--reactor-flush-requests&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#handler--reactor-flush-requests&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;MpscIntQueue flushQ&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;When a handler calls &lt;code&gt;FlushAsync()&lt;/code&gt;, the connection&amp;rsquo;s client fd is enqueued to the reactor&amp;rsquo;s flush queue. The reactor drains this and issues &lt;code&gt;send&lt;/code&gt; SQEs.&lt;/p&gt;
+&lt;h3&gt;Reactor → Handler: Read Completion&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;reactor--handler-read-completion&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#reactor--handler-read-completion&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;SpscRecvRing _recv (per connection)
+int _armed, _pending (atomics)
+ManualResetValueTaskSourceCore&amp;lt;ReadResult&amp;gt; _readSignal&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;The reactor enqueues &lt;code&gt;RingItem&lt;/code&gt;s to the connection&amp;rsquo;s SPSC ring and wakes the handler via the ValueTask completion source.&lt;/p&gt;
+&lt;h3&gt;Reactor → Handler: Flush Completion&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;reactor--handler-flush-completion&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#reactor--handler-flush-completion&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;pre&gt;&lt;code&gt;ManualResetValueTaskSourceCore&amp;lt;bool&amp;gt; _flushSignal
+int _flushArmed, _flushInProgress&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;When all staged bytes are sent, the reactor completes the flush signal, resuming the handler&amp;rsquo;s &lt;code&gt;await FlushAsync()&lt;/code&gt;.&lt;/p&gt;
+&lt;h2&gt;Memory Ordering&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;memory-ordering&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#memory-ordering&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;zerg uses three levels of memory ordering:&lt;/p&gt;
+&lt;h3&gt;Volatile Read/Write&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;volatile-readwrite&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#volatile-readwrite&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Used for single-word flags where only visibility is needed:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;Volatile&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;Write&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;k&#34;&gt;ref&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_closed&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;m&#34;&gt;1&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;       &lt;span class=&#34;c1&#34;&gt;// publish close&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;Volatile&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;Read&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;k&#34;&gt;ref&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_pending&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;           &lt;span class=&#34;c1&#34;&gt;// check pending flag&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;Volatile&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;Write&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;k&#34;&gt;ref&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;SendInflight&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;m&#34;&gt;0&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;   &lt;span class=&#34;c1&#34;&gt;// clear in-flight flag&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h3&gt;Interlocked (Full Fence)&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;interlocked-full-fence&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#interlocked-full-fence&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Used in MPSC queues where multiple producers contend:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;Interlocked&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;CompareExchange&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;k&#34;&gt;ref&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_armed&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;m&#34;&gt;0&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;,&lt;/span&gt; &lt;span class=&#34;m&#34;&gt;1&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;  &lt;span class=&#34;c1&#34;&gt;// atomically disarm&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;Interlocked&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;Increment&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;k&#34;&gt;ref&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_tail&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;                &lt;span class=&#34;c1&#34;&gt;// reserve MPSC slot&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h3&gt;Plain Reads (Single-Consumer)&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;plain-reads-single-consumer&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#plain-reads-single-consumer&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;The consumer side of SPSC/MPSC queues uses plain reads for &lt;code&gt;_head&lt;/code&gt; since only one thread reads and writes it:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;kt&#34;&gt;var&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;head&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;_head&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;                      &lt;span class=&#34;c1&#34;&gt;// only consumer writes _head&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;_head&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;=&lt;/span&gt; &lt;span class=&#34;n&#34;&gt;head&lt;/span&gt; &lt;span class=&#34;p&#34;&gt;+&lt;/span&gt; &lt;span class=&#34;m&#34;&gt;1&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;;&lt;/span&gt;                      &lt;span class=&#34;c1&#34;&gt;// safe: single writer&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2&gt;CPU Affinity&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;cpu-affinity&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#cpu-affinity&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;zerg provides optional CPU pinning for reactor threads via the &lt;code&gt;Affinity&lt;/code&gt; class:&lt;/p&gt;
+&lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
+
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-csharp&#34; data-lang=&#34;csharp&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;n&#34;&gt;Affinity&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;.&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;PinCurrentThreadToCpu&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;(&lt;/span&gt;&lt;span class=&#34;n&#34;&gt;cpuId&lt;/span&gt;&lt;span class=&#34;p&#34;&gt;);&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+  &lt;button
+    class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
+    title=&#34;Copy code&#34;
+  &gt;
+    &lt;div class=&#34;hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+&lt;div class=&#34;hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4&#34;&gt;&lt;/div&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;This uses the Linux &lt;code&gt;sched_setaffinity&lt;/code&gt; syscall to bind a thread to a specific core. Pinning prevents the OS scheduler from migrating threads, which improves cache locality and reduces jitter.&lt;/p&gt;
+&lt;p&gt;CPU pinning is optional and best-effort &amp;ndash; if it fails (e.g., in containers with CPU limits), the thread continues on whatever core the scheduler assigns.&lt;/p&gt;
+&lt;h2&gt;Handler Task Execution&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;handler-task-execution&#34;&gt;&lt;/span&gt;
+    &lt;a href=&#34;#handler-task-execution&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Handler tasks (&lt;code&gt;_ = HandleConnectionAsync(connection)&lt;/code&gt;) run on the .NET thread pool. When a handler awaits &lt;code&gt;ReadAsync()&lt;/code&gt; or &lt;code&gt;FlushAsync()&lt;/code&gt;:&lt;/p&gt;
+&lt;ol&gt;
+&lt;li&gt;The handler task yields back to the thread pool&lt;/li&gt;
+&lt;li&gt;The reactor thread completes the ValueTask source when data/flush is ready&lt;/li&gt;
+&lt;li&gt;The handler resumes on a thread pool thread (not the reactor thread)&lt;/li&gt;
+&lt;/ol&gt;
+&lt;p&gt;This means:&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;Reactor threads never execute user handler code&lt;/li&gt;
+&lt;li&gt;Handlers never block reactor threads&lt;/li&gt;
+&lt;li&gt;Multiple handlers can be active simultaneously per reactor&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;DEFER_TASKRUN&lt;/code&gt; ensures completions arrive at predictable points in the reactor loop&lt;/li&gt;
+&lt;/ul&gt;
+
+      </description>
+    </item>
+    
+  </channel>
+</rss>

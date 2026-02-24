@@ -1,13 +1,13 @@
-[![NuGet](https://img.shields.io/nuget/v/uRocket.svg)](https://www.nuget.org/packages/uRocket/)
+[![NuGet](https://img.shields.io/nuget/v/zerg.svg)](https://www.nuget.org/packages/zerg/)
 
-# uRocket Documentation
+# zerg
 
-**uRocket** (uR(ing)(S)ocket) is an experimental, low-level TCP server framework built in C# on top of Linux `io_uring`. It intentionally avoids "magic" abstraction layers and gives the developer direct control over sockets, buffers, queues, and scheduling.
+**zerg** is an experimental, low-level TCP server framework built in C# on top of Linux `io_uring`. It intentionally avoids "magic" abstraction layers and gives the developer direct control over sockets, buffers, queues, and scheduling.
 
 - **Author:** Diogo Martins
 - **License:** MIT
 - **Repository:** https://github.com/MDA2AV/uRocket
-- **NuGet:** https://www.nuget.org/packages/uRocket/
+- **NuGet:** https://www.nuget.org/packages/zerg/
 - **Target Frameworks:** .NET 9.0, .NET 10.0
 
 ---
@@ -42,7 +42,7 @@
 ### Via NuGet
 
 ```bash
-dotnet add package URocket
+dotnet add package zerg
 ```
 
 ### From Source
@@ -63,7 +63,7 @@ dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreferenc
 
 ## Architecture Overview
 
-uRocket follows a **split architecture** with two thread pools:
+zerg follows a **split architecture** with two thread pools:
 
 ```
                     ┌────────────────┐
@@ -104,8 +104,8 @@ Each reactor owns:
 ## Quick Start
 
 ```csharp
-using URocket.Engine;
-using URocket.Engine.Configs;
+using zerg.Engine;
+using zerg.Engine.Configs;
 
 var engine = new Engine(new EngineOptions
 {
@@ -143,8 +143,6 @@ catch (OperationCanceledException)
 ### Minimal Connection Handler
 
 ```csharp
-using URocket.Connection;
-
 static async Task HandleConnectionAsync(Connection connection)
 {
     while (true)
@@ -158,12 +156,11 @@ static async Task HandleConnectionAsync(Connection connection)
         // Process data...
 
         // Return buffers to the kernel
-        foreach (var ring in rings)
-            connection.ReturnRing(ring.BufferId);
+        rings.ReturnRingBuffers(connection.Reactor);
 
         // Write a response
         connection.Write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"u8);
-        connection.Flush();
+        await connection.FlushAsync();
         connection.ResetRead();
     }
 }
@@ -254,7 +251,7 @@ engine.Stop();
 
 ## Reading Data
 
-uRocket provides both high-level and low-level read APIs. The core contract is:
+zerg provides both high-level and low-level read APIs. The core contract is:
 
 1. **Only one `ReadAsync()` can be outstanding per connection at a time**
 2. After processing data, **return buffers** to the kernel via `ReturnRing()`
@@ -274,8 +271,7 @@ var rings = connection.GetAllSnapshotRingsAsUnmanagedMemory(result);
 ReadOnlySequence<byte> sequence = rings.ToReadOnlySequence();
 
 // Return all buffers when done
-foreach (var ring in rings)
-    connection.ReturnRing(ring.BufferId);
+rings.ReturnRingBuffers(connection.Reactor);
 
 // Reset for next read
 connection.ResetRead();
@@ -306,7 +302,6 @@ connection.ResetRead();
 |---|---|---|
 | `TailSnapshot` | `long` | Snapshot of the receive ring tail at read time |
 | `IsClosed` | `bool` | Whether the connection was closed |
-| `Error` | `int` | 0 on success, or a negative errno on error |
 
 ### RingItem
 
@@ -324,7 +319,7 @@ connection.ResetRead();
 
 ```csharp
 connection.Write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK"u8);
-connection.Flush();
+await connection.FlushAsync();
 ```
 
 ### IBufferWriter Interface
@@ -334,33 +329,13 @@ Span<byte> span = connection.GetSpan(256);
 // Write directly into the span...
 int bytesWritten = FormatResponse(span);
 connection.Advance(bytesWritten);
-connection.Flush();
-```
-
-### Zero-Copy Write with WriteItem
-
-For maximum performance, wrap a pointer in `UnmanagedMemoryManager` and enqueue a `WriteItem`:
-
-```csharp
-unsafe
-{
-    var msg = "HTTP/1.1 200 OK\r\nContent-Length: 13\r\nContent-Type: text/plain\r\n\r\nHello, World!"u8;
-
-    var unmanagedMemory = new UnmanagedMemoryManager(
-        (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(msg)),
-        msg.Length,
-        freeable: false  // false for u8 literals (static data)
-    );
-
-    connection.Write(new WriteItem(unmanagedMemory, connection.ClientFd));
-}
-connection.Flush();
+await connection.FlushAsync();
 ```
 
 ### Write/Flush Lifecycle
 
-1. **Write:** Data is staged in the connection's write buffer or enqueued via MPSC queue
-2. **Flush:** Signals the reactor to issue a `send` SQE to the kernel
+1. **Write:** Data is staged in the connection's write buffer
+2. **FlushAsync:** Signals the reactor to issue a `send` SQE to the kernel
 3. The reactor handles partial sends automatically (resubmits remaining data)
 4. The write buffer is reset after the full send completes
 
@@ -368,9 +343,9 @@ connection.Flush();
 
 ## Examples
 
-The repository includes four example connection handlers, from simple to advanced:
+The repository includes two example connection handlers:
 
-### Basic: `Rings_as_ReadOnlySpan`
+### `Rings_as_ReadOnlySpan`
 
 Simplest approach. Gets all snapshot rings and processes them as spans. Good starting point for understanding the API.
 
@@ -378,33 +353,12 @@ Simplest approach. Gets all snapshot rings and processes them as spans. Good sta
 Examples/ZeroAlloc/Basic/Rings_as_ReadOnlySpan.cs
 ```
 
-### Basic: `Rings_as_ReadOnlySequence`
+### `Rings_as_ReadOnlySequence`
 
 Same as above but creates a `ReadOnlySequence<byte>` from the rings, which is useful for `SequenceReader<byte>` based parsing.
 
 ```
 Examples/ZeroAlloc/Basic/Rings_as_ReadOnlySequence.cs
-```
-
-### Advanced: `SingleRing_ConnectionHandler`
-
-Handles single-ring reads on the hot path and buffers incomplete data ("inflight") for requests that span multiple reads. Demonstrates:
-- Hot path: full request in one buffer
-- Cold path: request spans multiple reads, data copied to inflight buffer
-
-```
-Examples/ZeroAlloc/Advanced/ZeroAlloc_Advanced_SingleRing_ConnectionHandler.cs
-```
-
-### Advanced: `MultiRings_ConnectionHandler`
-
-Most complete example. Handles all three data arrival patterns:
-- **Hot path:** Single ring, single complete request (most common)
-- **Lukewarm path:** Multiple rings in one read, request spans buffers
-- **Cold path:** Incomplete request buffered across multiple reads
-
-```
-Examples/ZeroAlloc/Advanced/ZeroAlloc_Advanced_MultiRings_ConnectionHandler.cs
 ```
 
 ---
@@ -418,7 +372,7 @@ Examples/ZeroAlloc/Advanced/ZeroAlloc_Advanced_MultiRings_ConnectionHandler.cs
 - **Shared Memory:** Both queues live in kernel/user shared memory - most operations require **no syscalls**
 - **Batching:** Submit many requests, get many completions with one syscall
 
-### Features Used by uRocket
+### Features Used by zerg
 
 | Feature | Description |
 |---|---|
@@ -466,47 +420,42 @@ Examples/ZeroAlloc/Advanced/ZeroAlloc_Advanced_MultiRings_ConnectionHandler.cs
 ## Project Structure
 
 ```
-URocket/
-├── URocket/                       # Core library (NuGet package)
-│   ├── ABI/                       # Linux system ABI bindings
-│   │   ├── CPU.cs                 # CPU detection
-│   │   ├── Kernel.cs              # Kernel-level utilities
-│   │   ├── LinuxSocket.cs         # Socket syscall wrappers (socket, bind, listen, etc.)
-│   │   └── URing.cs               # io_uring P/Invoke bindings to liburingshim.so
-│   ├── Connection/                # Per-connection state and APIs
-│   │   ├── Connection.Read.cs            # Read state, IValueTaskSource, async signaling
-│   │   ├── Connection.Read.HighLevelApi.cs  # Batch read APIs (GetAllSnapshotRings, etc.)
-│   │   ├── Connection.Read.LowLevelApi.cs   # Low-level streaming APIs (TryGetRing, etc.)
-│   │   └── Connection.Write.cs           # Write buffer, IBufferWriter, Flush
-│   ├── Engine/                    # Reactor pattern implementation
-│   │   ├── Engine.cs              # Main coordinator
-│   │   ├── Engine.Config.cs       # Configuration and thread setup
-│   │   ├── Engine.Acceptor.cs     # Accept event loop
-│   │   ├── Engine.Acceptor.Listener.cs  # Listening socket setup
-│   │   ├── Engine.Reactor.cs      # Reactor event loop
-│   │   ├── Engine.Reactor.HandleSubmitAndWaitCqe.cs       # CQE batch processing
-│   │   ├── Engine.Reactor.HandleSubmitAndWaitSingleCall.cs # Single-call variant
-│   │   └── Configs/               # EngineOptions, ReactorConfig, AcceptorConfig
-│   ├── Utils/                     # Data structures and helpers
-│   │   ├── RingItem.cs            # Received buffer metadata
-│   │   ├── ReadResult.cs          # Read snapshot result
-│   │   ├── WriteItem.cs           # Write queue item
-│   │   ├── FlushItem.cs           # Flush queue item
-│   │   ├── UnmanagedMemoryManager/  # Wraps unmanaged memory as MemoryManager<byte>
-│   │   └── MultiProducerSingleConsumer/  # Lock-free MPSC queues
-│   └── native/                    # Bundled native libraries
+zerg/
+├── zerg/                             # Core library (NuGet package)
+│   ├── ABI/                          # Linux system ABI bindings
+│   │   ├── CPU.cs                    # CPU affinity
+│   │   ├── Kernel.cs                 # Kernel-level utilities
+│   │   ├── LinuxSocket.cs            # Socket syscall wrappers
+│   │   └── URing.cs                  # io_uring P/Invoke bindings
+│   ├── Connection/                   # Per-connection state and APIs
+│   │   ├── Connection.Read.cs        # Read state, IValueTaskSource, async signaling
+│   │   ├── Connection.Read.HighLevelApi.cs  # Batch read APIs
+│   │   ├── Connection.Read.LowLevelApi.cs   # Low-level streaming APIs
+│   │   ├── Connection.Write.cs       # Write buffer, IBufferWriter, Flush
+│   │   └── ConnectionStream.cs       # BCL Stream adapter
+│   ├── Engine/                       # Reactor pattern implementation
+│   │   ├── Engine.cs                 # Main coordinator
+│   │   ├── Engine.Config.cs          # Configuration and thread setup
+│   │   ├── Engine.Acceptor.cs        # Accept event loop
+│   │   ├── Engine.Reactor.cs         # Reactor event loop
+│   │   └── Configs/                  # EngineOptions, ReactorConfig, AcceptorConfig
+│   ├── Utils/                        # Data structures and helpers
+│   │   ├── RingItem.cs               # Received buffer metadata
+│   │   ├── ReadResult.cs             # Read snapshot result
+│   │   ├── UnmanagedMemoryManager/   # Wraps unmanaged memory as MemoryManager<byte>
+│   │   ├── SingleProducerSingleConsumer/  # SPSC ring buffer
+│   │   └── MultiProducerSingleConsumer/   # Lock-free MPSC queues
+│   └── native/                       # Bundled native libraries
 │       ├── linux-x64/liburingshim.so
 │       └── linux-musl-x64/liburingshim.so
 │
-├── Examples/                      # Example applications
-│   ├── Program.cs                 # Entry point with engine setup
-│   └── ZeroAlloc/
-│       ├── Basic/                 # Simple read/write patterns
-│       └── Advanced/              # Inflight buffering, multi-ring handling
+├── Examples/                         # Example applications
+│   ├── Program.cs                    # Entry point with engine setup
+│   └── ZeroAlloc/Basic/              # Simple read/write patterns
 │
-├── Playground/                    # Development and testing sandbox
-├── BenchmarkApp/                  # TechEmpower-style HTTP benchmark
-└── Benchmarkings/                 # Cold boot performance comparisons
+├── Playground/                       # Development sandbox
+├── TechEmpower/BenchmarkApp/         # HTTP benchmark server
+└── Docs/                             # Hextra documentation site
 ```
 
 ### Dependencies
@@ -534,7 +483,7 @@ URocket/
        ▼                ▼                ▼
 ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
 │  Handler    │  │  Handler    │  │  Handler    │  User async Tasks
-│  Tasks      │  │  Tasks      │  │  Tasks      │  (ReadAsync/Write/Flush)
+│  Tasks      │  │  Tasks      │  │  Tasks      │  (ReadAsync/Write/FlushAsync)
 └─────────────┘  └─────────────┘  └─────────────┘
 ```
 
