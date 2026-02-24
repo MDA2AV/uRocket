@@ -1,12 +1,12 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>zerg – Getting Started</title>
-    <link>https://urocket.dev/docs/getting-started/</link>
+    <link>http://localhost:1313/zerg/docs/getting-started/</link>
     <description>Recent content in Getting Started on zerg</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     
-	  <atom:link href="https://urocket.dev/docs/getting-started/index.xml" rel="self" type="application/rss+xml" />
+	  <atom:link href="http://localhost:1313/zerg/docs/getting-started/index.xml" rel="self" type="application/rss+xml" />
     
     
       
@@ -16,10 +16,10 @@
     
     <item>
       <title>Installation</title>
-      <link>https://urocket.dev/docs/getting-started/installation/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/installation/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/getting-started/installation/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/installation/</guid>
       <description>
         
         
@@ -162,10 +162,10 @@
     
     <item>
       <title>Quick Start</title>
-      <link>https://urocket.dev/docs/getting-started/quick-start/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/quick-start/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/getting-started/quick-start/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/quick-start/</guid>
       <description>
         
         
@@ -305,10 +305,10 @@
     
     <item>
       <title>Configuration</title>
-      <link>https://urocket.dev/docs/getting-started/configuration/</link>
+      <link>http://localhost:1313/zerg/docs/getting-started/configuration/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/getting-started/configuration/</guid>
+      <guid>http://localhost:1313/zerg/docs/getting-started/configuration/</guid>
       <description>
         
         

@@ -1,12 +1,12 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>zerg – Architecture</title>
-    <link>https://urocket.dev/docs/architecture/</link>
+    <link>http://localhost:1313/zerg/docs/architecture/</link>
     <description>Recent content in Architecture on zerg</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     
-	  <atom:link href="https://urocket.dev/docs/architecture/index.xml" rel="self" type="application/rss+xml" />
+	  <atom:link href="http://localhost:1313/zerg/docs/architecture/index.xml" rel="self" type="application/rss+xml" />
     
     
       
@@ -16,10 +16,10 @@
     
     <item>
       <title>Reactor Pattern</title>
-      <link>https://urocket.dev/docs/architecture/reactor-pattern/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/reactor-pattern/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/architecture/reactor-pattern/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/reactor-pattern/</guid>
       <description>
         
         
@@ -178,10 +178,10 @@
     
     <item>
       <title>io_uring</title>
-      <link>https://urocket.dev/docs/architecture/io-uring/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/io-uring/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/architecture/io-uring/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/io-uring/</guid>
       <description>
         
         
@@ -393,10 +393,10 @@
     
     <item>
       <title>Buffer Rings</title>
-      <link>https://urocket.dev/docs/architecture/buffer-rings/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/buffer-rings/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/architecture/buffer-rings/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/buffer-rings/</guid>
       <description>
         
         
@@ -600,10 +600,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Connection Lifecycle</title>
-      <link>https://urocket.dev/docs/architecture/connection-lifecycle/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/connection-lifecycle/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/architecture/connection-lifecycle/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/connection-lifecycle/</guid>
       <description>
         
         
@@ -764,10 +764,10 @@ shim_buf_ring_advance(br, count)&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;div cla
     
     <item>
       <title>Threading Model</title>
-      <link>https://urocket.dev/docs/architecture/threading-model/</link>
+      <link>http://localhost:1313/zerg/docs/architecture/threading-model/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/architecture/threading-model/</guid>
+      <guid>http://localhost:1313/zerg/docs/architecture/threading-model/</guid>
       <description>
         
         

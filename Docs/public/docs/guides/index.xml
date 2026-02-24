@@ -1,12 +1,12 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>zerg – Guides</title>
-    <link>https://urocket.dev/docs/guides/</link>
+    <link>http://localhost:1313/zerg/docs/guides/</link>
     <description>Recent content in Guides on zerg</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     
-	  <atom:link href="https://urocket.dev/docs/guides/index.xml" rel="self" type="application/rss+xml" />
+	  <atom:link href="http://localhost:1313/zerg/docs/guides/index.xml" rel="self" type="application/rss+xml" />
     
     
       
@@ -16,10 +16,10 @@
     
     <item>
       <title>Zero-Allocation Patterns</title>
-      <link>https://urocket.dev/docs/guides/zero-allocation/</link>
+      <link>http://localhost:1313/zerg/docs/guides/zero-allocation/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/guides/zero-allocation/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/zero-allocation/</guid>
       <description>
         
         
@@ -219,10 +219,10 @@
     
     <item>
       <title>Building an HTTP Server</title>
-      <link>https://urocket.dev/docs/guides/http-server/</link>
+      <link>http://localhost:1313/zerg/docs/guides/http-server/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/guides/http-server/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/http-server/</guid>
       <description>
         
         
@@ -439,10 +439,10 @@
     
     <item>
       <title>Buffer Management</title>
-      <link>https://urocket.dev/docs/guides/buffer-management/</link>
+      <link>http://localhost:1313/zerg/docs/guides/buffer-management/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/guides/buffer-management/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/buffer-management/</guid>
       <description>
         
         
@@ -707,10 +707,10 @@ Per-Connection:
     
     <item>
       <title>Performance Tuning</title>
-      <link>https://urocket.dev/docs/guides/performance-tuning/</link>
+      <link>http://localhost:1313/zerg/docs/guides/performance-tuning/</link>
       <pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate>
       
-      <guid>https://urocket.dev/docs/guides/performance-tuning/</guid>
+      <guid>http://localhost:1313/zerg/docs/guides/performance-tuning/</guid>
       <description>
         
         
