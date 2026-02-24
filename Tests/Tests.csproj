@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\zerg\zerg.csproj" />
+    </ItemGroup>
+
+    <!-- Copy native io_uring shim to test output -->
+    <ItemGroup>
+        <Content Include="..\zerg\native\linux-x64\liburingshim.so"
+                 CopyToOutputDirectory="PreserveNewest"
+                 Link="liburingshim.so" />
+    </ItemGroup>
+
+</Project>
