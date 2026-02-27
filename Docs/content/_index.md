@@ -4,7 +4,7 @@ layout: hextra-home
 ---
 
 {{< hextra/hero-badge link="https://www.nuget.org/packages/zerg" >}}
-  NuGet v0.3.14
+  NuGet v0.4.11
 {{< /hextra/hero-badge >}}
 
 <div style="margin-top: 1.5rem; margin-bottom: 1.25rem;">
