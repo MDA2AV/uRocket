@@ -29,7 +29,7 @@ public sealed unsafe partial class Connection
     ///
     /// Wakeup behavior:
     /// - If a handler is currently armed, we atomically disarm and complete the ValueTask
-    ///   with a batch boundary (<see cref="ReadResult.TailSnapshot"/>).
+    ///   with a batch boundary (<see cref="RingSnapshot.TailSnapshot"/>).
     /// - If no handler is armed, we set <see cref="_pending"/> so the next ReadAsync fast-paths.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -48,7 +48,7 @@ public sealed unsafe partial class Connection
 
             // Wake waiter (if any) so it can exit.
             if (Interlocked.Exchange(ref _armed, 0) == 1)
-                _readSignal.SetResult(ReadResult.Closed(error: 0));
+                _readSignal.SetResult(RingSnapshot.Closed(error: 0));
             else
                 Volatile.Write(ref _pending, 1);
 
@@ -61,7 +61,7 @@ public sealed unsafe partial class Connection
         {
             long snap = _recv.SnapshotTail();
             SnapshotRingCount = (int)(snap - _recv.Head);
-            _readSignal.SetResult(new ReadResult(snap, isClosed: false));
+            _readSignal.SetResult(new RingSnapshot(snap, isClosed: false));
         }
         else
         {

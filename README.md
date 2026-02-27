@@ -9,7 +9,7 @@
 - **Repository:** https://github.com/MDA2AV/uRocket
 - **NuGet:** https://www.nuget.org/packages/zerg/
 - **Docs:** https://mda2av.github.io/zerg/
-- **Target Frameworks:** .NET 9.0, .NET 10.0
+- **Target Frameworks:** .NET 8.0, .NET 9.0, .NET 10.0
 
 ---
 
@@ -32,7 +32,7 @@
 
 ## Requirements
 
-- **Linux** (kernel 5.10+ recommended for stable `io_uring` support)
+- **Linux** (kernel 6.1+ required for multishot accept/recv, buffer rings, `DEFER_TASKRUN`)
 - **.NET 9.0** or **.NET 10.0** SDK
 - **liburing** (the native shim `liburingshim.so` is bundled in the NuGet package for `linux-x64` and `linux-musl-x64`)
 
@@ -49,8 +49,8 @@ dotnet add package zerg
 ### From Source
 
 ```bash
-git clone https://github.com/MDA2AV/uRocket.git
-cd uRocket
+git clone https://github.com/MDA2AV/zerg.git
+cd zerg
 dotnet build
 ```
 
@@ -305,7 +305,7 @@ zerg provides both high-level and low-level read APIs. The core contract is:
     │         │                                                        │
     │         ▼                                                        │
     │   ┌─────────────────┐     ┌─────────────────────────────────┐   │
-    │   │  ReadResult      │     │  Option A: High-Level API       │   │
+    │   │  RingSnapshot     │     │  Option A: High-Level API       │   │
     │   │  .IsClosed       │────►│  GetAllSnapshotRingsAs          │   │
     │   │  .TailSnapshot   │     │  UnmanagedMemory(result)        │   │
     │   └─────────────────┘     │  .ToReadOnlySequence()          │   │
@@ -337,7 +337,7 @@ zerg provides both high-level and low-level read APIs. The core contract is:
 
 ```csharp
 // Wait for data
-ReadResult result = await connection.ReadAsync();
+RingSnapshot result = await connection.ReadAsync();
 if (result.IsClosed) return; // Connection was closed
 
 // Get all received buffers as UnmanagedMemoryManager[]
@@ -358,7 +358,7 @@ connection.ResetRead();
 For fine-grained control, consume buffers one at a time:
 
 ```csharp
-ReadResult result = await connection.ReadAsync();
+RingSnapshot result = await connection.ReadAsync();
 if (result.IsClosed) return;
 
 // Iterate through individual ring buffers
@@ -372,7 +372,7 @@ while (connection.TryGetRing(result.TailSnapshot, out RingItem ring))
 connection.ResetRead();
 ```
 
-### ReadResult
+### RingSnapshot
 
 | Property | Type | Description |
 |---|---|---|
@@ -386,6 +386,47 @@ connection.ResetRead();
 | `Ptr` | `byte*` | Pointer to the receive buffer |
 | `Length` | `int` | Number of bytes received |
 | `BufferId` | `ushort` | Kernel buffer ID (used with `ReturnRing()`) |
+
+### Adapter APIs
+
+For convenience, zerg provides two adapter classes that wrap the low-level ring API:
+
+#### ConnectionPipeReader (Zero-Copy)
+
+```csharp
+var reader = new ConnectionPipeReader(connection);
+
+while (true)
+{
+    var result = await reader.ReadAsync();
+    if (result.IsCompleted) break;
+
+    var buffer = result.Buffer;
+    // Parse buffer...
+
+    reader.AdvanceTo(consumed, examined);
+}
+
+reader.Complete();
+```
+
+Kernel buffers stay held until `AdvanceTo` releases them — no copies. Supports partial consumption for protocol parsing.
+
+#### ConnectionStream (BCL Compatibility)
+
+```csharp
+await using var stream = new ConnectionStream(connection);
+var buf = new byte[4096];
+
+while ((int n = await stream.ReadAsync(buf)) > 0)
+{
+    // Process buf[..n]
+    await stream.WriteAsync(responseBytes);
+    await stream.FlushAsync();
+}
+```
+
+One copy per read. Use when integrating with APIs that require `Stream`.
 
 ---
 
@@ -444,9 +485,11 @@ await connection.FlushAsync();
 
 ## Examples
 
-The repository includes two example connection handlers:
+The repository includes example connection handlers demonstrating different API levels:
 
-### `Rings_as_ReadOnlySpan`
+### Zero-Copy (Raw Ring API)
+
+#### `Rings_as_ReadOnlySpan`
 
 Simplest approach. Gets all snapshot rings and processes them as spans. Good starting point for understanding the API.
 
@@ -454,12 +497,44 @@ Simplest approach. Gets all snapshot rings and processes them as spans. Good sta
 Examples/ZeroAlloc/Basic/Rings_as_ReadOnlySpan.cs
 ```
 
-### `Rings_as_ReadOnlySequence`
+#### `Rings_as_ReadOnlySequence`
 
 Same as above but creates a `ReadOnlySequence<byte>` from the rings, which is useful for `SequenceReader<byte>` based parsing.
 
 ```
 Examples/ZeroAlloc/Basic/Rings_as_ReadOnlySequence.cs
+```
+
+### PipeReader Adapter
+
+#### `PipeReaderExample`
+
+Zero-copy reads via `ConnectionPipeReader`. Data stays in io_uring kernel buffers until explicitly consumed via `AdvanceTo`. Supports partial consumption for protocol parsing.
+
+```
+Examples/PipeReader/PipeReaderExample.cs
+```
+
+### Stream Adapter
+
+#### `StreamExample`
+
+BCL `Stream` compatibility via `ConnectionStream`. Copies received bytes into a managed buffer on each read. Use when integrating with APIs that require `Stream`.
+
+```
+Examples/Stream/StreamExample.cs
+```
+
+### Running Examples
+
+```bash
+# Default (PipeReader)
+dotnet run --project Examples
+
+# Specific handler
+dotnet run --project Examples -- raw
+dotnet run --project Examples -- pipereader
+dotnet run --project Examples -- stream
 ```
 
 ---
@@ -583,7 +658,7 @@ zerg/                                         # Core library (NuGet package)
 │       └── IPVersion.cs                      # IPv4 / IPv6 / DualStack enum
 ├── Utils/                                    # Data structures and helpers
 │   ├── RingItem.cs                           # Received buffer metadata (ptr, len, buf_id)
-│   ├── ReadResult.cs                         # Read snapshot result
+│   ├── ReadResult.cs                         # RingSnapshot struct (read snapshot result)
 │   ├── RingSegment.cs                        # ReadOnlySequence segment node
 │   ├── WriteItem.cs                          # Write buffer descriptor
 │   ├── PinnedByteSequence.cs                 # Pinned byte[] as ReadOnlySequence
@@ -614,6 +689,7 @@ zerg/                                         # Core library (NuGet package)
 | Dependency | Version | Purpose |
 |---|---|---|
 | `Microsoft.Extensions.ObjectPool` | 10.0.2 | Connection object pooling |
+| `System.IO.Pipelines` | 9.0.4 | `PipeReader` adapter (`ConnectionPipeReader`) |
 | `liburingshim.so` | bundled | C shim bridging P/Invoke to liburing |
 
 ---

@@ -68,7 +68,7 @@ Key patterns:
   <meta itemprop="description" content="zerg is designed for allocation-free operation on the hot path. This guide explains the read/write patterns and their allocation characteristics.
 Reading with ReadOnlySpan The simplest approach: iterate ring items one at a time using TryGetRing and process each as a ReadOnlySpan&lt;byte&gt;. Zero allocation.
 static async Task HandleConnectionAsync(Connection connection) { while (true) { var result = await connection.ReadAsync(); if (result.IsClosed) break; while (connection.TryGetRing(result.TailSnapshot, out RingItem ring)) { ReadOnlySpan&lt;byte&gt; data = ring.AsSpan(); // Parse and respond in-place -- no allocation ProcessRequest(connection, data); // Return buffer immediately connection.ReturnRing(ring.BufferId); } await connection.FlushAsync(); connection.ResetRead(); } } Key patterns:">
-  <meta itemprop="wordCount" content="388">
+  <meta itemprop="wordCount" content="382">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Zero-Allocation Patterns">
   <meta name="twitter:description" content="zerg is designed for allocation-free operation on the hot path. This guide explains the read/write patterns and their allocation characteristics.
@@ -197,9 +197,8 @@ body {
 
   <nav class="hextra-max-navbar-width hx:mx-auto hx:flex hx:items-center hx:justify-end hx:gap-2 hx:h-16 hx:px-6">
     <a class="hx:flex hx:items-center hx:hover:opacity-75 hx:ltr:mr-auto hx:rtl:ml-auto" href="/zerg/">
-    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="Logo" height="32" width="32" />
-    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="Dark Logo" height="32" width="32" />
-    <span class="hx:mr-2 hx:font-extrabold hx:inline hx:select-none" title="zerg">zerg</span>
+    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
+    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
 </a>
 <a
   title=""
@@ -469,6 +468,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div>
             </li><li class="hx:flex hx:flex-col open"><a
@@ -517,12 +524,6 @@ body {
                 href="#allocation-free-patterns-summary"
                 class="hx:flex hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [word-break:break-word] hx:cursor-pointer [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] hx:contrast-more:border hx:gap-2 hx:before:opacity-25 hx:before:content-['#'] hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:text-gray-900 hx:contrast-more:dark:text-gray-50 hx:contrast-more:border-transparent hx:contrast-more:hover:border-gray-900 hx:contrast-more:dark:hover:border-gray-50"
               >Allocation-Free Patterns Summary</a>
-            </li>
-          <li>
-              <a
-                href="#real-world-example"
-                class="hx:flex hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [word-break:break-word] hx:cursor-pointer [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] hx:contrast-more:border hx:gap-2 hx:before:opacity-25 hx:before:content-['#'] hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:text-gray-900 hx:contrast-more:dark:text-gray-50 hx:contrast-more:border-transparent hx:contrast-more:hover:border-gray-900 hx:contrast-more:dark:hover:border-gray-50"
-              >Real-World Example</a>
             </li>
           </ul>
   
@@ -726,6 +727,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div></li>
           <li class="open"><a
@@ -838,10 +847,6 @@ body {
       </li>
       <li class="hx:my-2 hx:scroll-my-6 hx:scroll-py-6">
         <a class="hx:font-medium hx:inline-block hx:text-gray-500 hx:hover:text-gray-900 hx:dark:text-gray-400 hx:dark:hover:text-gray-300 hx:contrast-more:text-gray-900 hx:contrast-more:underline hx:contrast-more:dark:text-gray-50 hx:w-full hx:break-words" href="#allocation-free-patterns-summary">Allocation-Free Patterns Summary
-        </a>
-      </li>
-      <li class="hx:my-2 hx:scroll-my-6 hx:scroll-py-6">
-        <a class="hx:font-medium hx:inline-block hx:text-gray-500 hx:hover:text-gray-900 hx:dark:text-gray-400 hx:dark:hover:text-gray-300 hx:contrast-more:text-gray-900 hx:contrast-more:underline hx:contrast-more:dark:text-gray-50 hx:w-full hx:break-words" href="#real-world-example">Real-World Example
         </a>
       </li></ul>
       <div class="hx:mt-8 hx:border-t hx:bg-white hx:pt-8 hx:shadow-[0_-12px_16px_white] hx:dark:bg-dark hx:dark:shadow-[0_-12px_16px_#111] hx:sticky hx:bottom-0 hx:flex hx:flex-col hx:items-start hx:gap-2 hx:pb-8 hx:border-gray-200 hx:dark:border-neutral-800 hx:contrast-more:border-t hx:contrast-more:border-neutral-400 hx:contrast-more:shadow-none hx:contrast-more:dark:border-neutral-400">
@@ -1009,7 +1014,12 @@ body {
           <td>None</td>
       </tr>
       <tr>
-          <td>BCL compatibility</td>
+          <td>PipeReader API with partial consumption</td>
+          <td><code>ConnectionPipeReader.ReadAsync()</code></td>
+          <td>Held buffer list (zero-copy data)</td>
+      </tr>
+      <tr>
+          <td>BCL Stream compatibility</td>
           <td><code>ConnectionStream.ReadAsync()</code></td>
           <td>Copies to managed buffer</td>
       </tr>
@@ -1057,8 +1067,6 @@ body {
       </tr>
   </tbody>
 </table>
-<h2>Real-World Example<span class="hx:absolute hx:-mt-20" id="real-world-example"></span>
-    <a href="#real-world-example" class="subheading-anchor" aria-label="Permalink for this section"></a></h2><p>The TechEmpower benchmark handler in the zerg repository demonstrates these patterns in a production HTTP server.</p>
 
         </div>
         <div class="hx:mt-16"></div>

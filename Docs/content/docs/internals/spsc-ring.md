@@ -108,7 +108,7 @@ The snapshot pattern prevents the consumer from chasing a moving tail:
 
 ```csharp
 // Handler side:
-ReadResult result = await connection.ReadAsync();
+RingSnapshot result = await connection.ReadAsync();
 long snapshot = result.TailSnapshot;  // captured once
 
 // Drain exactly what was available at ReadAsync time

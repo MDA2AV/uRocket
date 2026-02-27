@@ -102,7 +102,8 @@ await connection.FlushAsync();
 | Single buffer, simple protocol | `TryGetRing()` + `AsSpan()` | None |
 | Multi-buffer or complex parsing | `GetAllSnapshotRingsAsUnmanagedMemory()` + `ToReadOnlySequence()` | Array + segments |
 | Need individual ring control | `TryGetRing()` loop | None |
-| BCL compatibility | `ConnectionStream.ReadAsync()` | Copies to managed buffer |
+| PipeReader API with partial consumption | `ConnectionPipeReader.ReadAsync()` | Held buffer list (zero-copy data) |
+| BCL Stream compatibility | `ConnectionStream.ReadAsync()` | Copies to managed buffer |
 
 ## Allocation-Free Patterns Summary
 
@@ -114,7 +115,3 @@ await connection.FlushAsync();
 | `TryDynamicallyGetAllSnapshotRings()` | List (if data) | When ring count varies and you want `out` semantics |
 | `connection.Write(span)` | None | Staging response bytes |
 | `connection.GetSpan()` + `Advance()` | None | Direct-write via IBufferWriter |
-
-## Real-World Example
-
-The TechEmpower benchmark handler in the zerg repository demonstrates these patterns in a production HTTP server.

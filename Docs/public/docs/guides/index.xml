@@ -163,7 +163,12 @@
           &lt;td&gt;None&lt;/td&gt;
       &lt;/tr&gt;
       &lt;tr&gt;
-          &lt;td&gt;BCL compatibility&lt;/td&gt;
+          &lt;td&gt;PipeReader API with partial consumption&lt;/td&gt;
+          &lt;td&gt;&lt;code&gt;ConnectionPipeReader.ReadAsync()&lt;/code&gt;&lt;/td&gt;
+          &lt;td&gt;Held buffer list (zero-copy data)&lt;/td&gt;
+      &lt;/tr&gt;
+      &lt;tr&gt;
+          &lt;td&gt;BCL Stream compatibility&lt;/td&gt;
           &lt;td&gt;&lt;code&gt;ConnectionStream.ReadAsync()&lt;/code&gt;&lt;/td&gt;
           &lt;td&gt;Copies to managed buffer&lt;/td&gt;
       &lt;/tr&gt;
@@ -211,8 +216,6 @@
       &lt;/tr&gt;
   &lt;/tbody&gt;
 &lt;/table&gt;
-&lt;h2&gt;Real-World Example&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;real-world-example&#34;&gt;&lt;/span&gt;
-    &lt;a href=&#34;#real-world-example&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;The TechEmpower benchmark handler in the zerg repository demonstrates these patterns in a production HTTP server.&lt;/p&gt;
 
       </description>
     </item>

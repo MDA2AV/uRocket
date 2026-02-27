@@ -1,4 +1,7 @@
-﻿using Examples.ZeroAlloc.Basic;
+using Examples.PipeReader;
+using Examples.Stream;
+using Examples.ZeroAlloc.Basic;
+using zerg;
 using zerg.Engine;
 using zerg.Engine.Configs;
 
@@ -19,13 +22,29 @@ internal class Program
             ReactorCount = 12
         });
         engine.Listen();
-        
+
         var cts = new CancellationTokenSource();
         _ = Task.Run(() => {
             Console.ReadLine();
             engine.Stop();
             cts.Cancel();
         }, cts.Token);
+
+        // Pick the handler to benchmark:
+        //   "raw"        — zero-copy, manual ring management (fastest)
+        //   "pipereader"  — zero-copy via PipeReader adapter
+        //   "stream"      — copy-per-read via Stream adapter
+        var mode = args.Length > 0 ? args[0] : "pipereader";
+
+        Func<Connection, Task> handler = mode switch
+        {
+            "raw"        => Rings_as_ReadOnlySpan.HandleConnectionAsync,
+            "pipereader" => PipeReaderExample.HandleConnectionAsync,
+            "stream"     => StreamExample.HandleConnectionAsync,
+            _            => PipeReaderExample.HandleConnectionAsync,
+        };
+
+        Console.WriteLine($"Running with handler: {mode}");
 
         try
         {
@@ -34,8 +53,7 @@ internal class Program
             {
                 var connection = await engine.AcceptAsync(cts.Token);
                 if (connection is null) continue;
-                //_ = Rings_as_ReadOnlySequence.HandleConnectionAsync(connection);
-                _ = Rings_as_ReadOnlySpan.HandleConnectionAsync(connection);
+                _ = handler(connection);
             }
         }
         catch (OperationCanceledException)

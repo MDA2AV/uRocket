@@ -3,7 +3,7 @@ using System.IO.Pipelines;
 using System.Text;
 using zerg;
 using zerg.Utils.UnmanagedMemoryManager;
-using ReadResult = zerg.Utils.ReadResult;
+using zerg.Utils;
 
 namespace Playground;
 
@@ -44,7 +44,7 @@ public class HttpResponse
     {
         while (true)
         {
-            ReadResult result = await connection.ReadAsync();
+            RingSnapshot result = await connection.ReadAsync();
             if (result.IsClosed)
                 break;
 

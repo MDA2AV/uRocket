@@ -14,10 +14,10 @@ dotnet add package zerg
 Or add the package reference directly to your `.csproj`:
 
 ```xml
-<PackageReference Include="zerg" Version="0.3.12" />
+<PackageReference Include="zerg" Version="*" />
 ```
 
-zerg targets both **.NET 9.0** and **.NET 10.0**.
+zerg targets **.NET 8.0**, **.NET 9.0**, and **.NET 10.0**.
 
 ## Native Dependencies
 
@@ -34,9 +34,7 @@ These are included in the NuGet package and copied to your output directory auto
 
 zerg requires a Linux kernel with `io_uring` support:
 
-- **Minimum:** Linux 5.10+ (basic `io_uring` operations)
-- **Recommended:** Linux 6.0+ (multishot accept, buffer rings, `IORING_SETUP_SINGLE_ISSUER`)
-- **Optimal:** Linux 6.1+ (`IORING_SETUP_DEFER_TASKRUN`)
+- **Minimum:** Linux 6.1+ (multishot accept, multishot recv, buffer rings, `IORING_SETUP_DEFER_TASKRUN`, `IORING_SETUP_SINGLE_ISSUER`)
 
 You can check your kernel version with:
 
@@ -49,12 +47,12 @@ uname -r
 Clone the repository and build with the .NET SDK:
 
 ```bash
-git clone https://github.com/MDA2AV/uRocket.git
-cd uRocket
+git clone https://github.com/MDA2AV/zerg.git
+cd zerg
 dotnet build
 ```
 
-The solution file `zerg.sln` includes the core library, examples, playground, and TechEmpower benchmark projects.
+The solution file `zerg.sln` includes the core library, examples, and playground projects.
 
 ## AOT Compilation
 
@@ -79,4 +77,3 @@ When you reference zerg, the following projects are available in the solution:
 | `zerg` | Core library (the NuGet package) |
 | `Examples` | Basic usage examples (ReadOnlySpan, ReadOnlySequence) |
 | `Playground` | Development sandbox |
-| `TechEmpower/BenchmarkApp` | HTTP/1.1 benchmark server |

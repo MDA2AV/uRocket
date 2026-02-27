@@ -6,7 +6,7 @@ namespace zerg;
 
 public sealed partial class Connection : 
     IBufferWriter<byte>,
-    IValueTaskSource<ReadResult>, 
+    IValueTaskSource<RingSnapshot>, 
     IValueTaskSource, /* flush */
     IDisposable
 {

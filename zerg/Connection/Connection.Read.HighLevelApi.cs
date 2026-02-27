@@ -13,7 +13,7 @@ namespace zerg;
 /// <remarks>
 /// <br/>
 /// **High level API remarks**: The receiving side is modeled as a monotonic ring with snapshot semantics:
-/// each <see cref="ReadResult"/> captures a logical tail position that acts as
+/// each <see cref="RingSnapshot"/> captures a logical tail position that acts as
 /// a fence for how much data is visible in the current batch.
 ///
 /// All “snapshot” APIs in this type operate relative to that fence and either
@@ -43,11 +43,11 @@ public sealed partial class Connection
 
     /// <summary>
     /// Builds a zero-copy <see cref="ReadOnlySequence{T}"/> over all ring segments
-    /// that existed at the time of the given <see cref="ReadResult"/> snapshot.
+    /// that existed at the time of the given <see cref="RingSnapshot"/> snapshot.
     /// </summary>
     /// <remarks>
     /// Dequeues all receive-ring segments with a position less than
-    /// <see cref="ReadResult.TailSnapshot"/> and links them into a segmented sequence.
+    /// <see cref="RingSnapshot.TailSnapshot"/> and links them into a segmented sequence.
     /// The underlying buffers are not copied; <paramref name="rings"/> is returned so the
     /// caller can keep them alive and later return/release them. This call permanently
     /// advances the ring head.
@@ -59,7 +59,7 @@ public sealed partial class Connection
     /// </param>
     /// <param name="sequence">The resulting sequence, or <c>default</c> if no data.</param>
     /// <returns><c>true</c> if data was dequeued; otherwise <c>false</c>.</returns>
-    public bool TryDynamicallyGetAllSnapshotRingsAsReadOnlySequence(ReadResult readResult, out List<UnmanagedMemoryManager> rings, out ReadOnlySequence<byte> sequence)
+    public bool TryDynamicallyGetAllSnapshotRingsAsReadOnlySequence(RingSnapshot readResult, out List<UnmanagedMemoryManager> rings, out ReadOnlySequence<byte> sequence)
     {
         rings = null!;
         var tailSnapshot = readResult.TailSnapshot;
@@ -93,10 +93,10 @@ public sealed partial class Connection
     
     /// <summary>
     /// Dequeues all receive-ring segments that existed at the time of the given
-    /// <see cref="ReadResult"/> snapshot and returns them as unmanaged memory owners.
+    /// <see cref="RingSnapshot"/> snapshot and returns them as unmanaged memory owners.
     /// </summary>
     /// <remarks>
-    /// All ring segments with a position less than <see cref="ReadResult.TailSnapshot"/>
+    /// All ring segments with a position less than <see cref="RingSnapshot.TailSnapshot"/>
     /// are removed from the receiving ring and returned as
     /// <see cref="UnmanagedMemoryManager"/> instances. No data is copied.
     /// The caller owns the returned buffers and is responsible for releasing or
@@ -107,7 +107,7 @@ public sealed partial class Connection
     /// The dequeued ring buffers, or <c>null</c> if no data was available.
     /// </param>
     /// <returns><c>true</c> if any data was dequeued; otherwise <c>false</c>.</returns>
-    public bool TryDynamicallyGetAllSnapshotRingsAsUnmanagedMemory(ReadResult readResult, out List<UnmanagedMemoryManager> rings)
+    public bool TryDynamicallyGetAllSnapshotRingsAsUnmanagedMemory(RingSnapshot readResult, out List<UnmanagedMemoryManager> rings)
     {
         rings = null!;
         var tailSnapshot = readResult.TailSnapshot;
@@ -134,10 +134,10 @@ public sealed partial class Connection
     
     /// <summary>
     /// Dequeues all receive-ring items that existed at the time of the given
-    /// <see cref="ReadResult"/> snapshot and returns them as raw <see cref="RingItem"/>s.
+    /// <see cref="RingSnapshot"/> snapshot and returns them as raw <see cref="RingItem"/>s.
     /// </summary>
     /// <remarks>
-    /// All ring items with a position less than <see cref="ReadResult.TailSnapshot"/>
+    /// All ring items with a position less than <see cref="RingSnapshot.TailSnapshot"/>
     /// are removed from the receiving ring and returned. No data is copied.
     /// The caller becomes the owner of the dequeued items and is responsible for
     /// processing and releasing them. This call permanently advances the ring head.
@@ -147,7 +147,7 @@ public sealed partial class Connection
     /// The dequeued ring items, or <c>null</c> if no data was available.
     /// </param>
     /// <returns><c>true</c> if any data was dequeued; otherwise <c>false</c>.</returns>
-    public bool TryDynamicallyGetAllSnapshotRings(ReadResult readResult, out List<RingItem> rings)
+    public bool TryDynamicallyGetAllSnapshotRings(RingSnapshot readResult, out List<RingItem> rings)
     {
         rings = null!;
         var tailSnapshot = readResult.TailSnapshot;
@@ -182,7 +182,7 @@ public sealed partial class Connection
     /// snapshot fence. The returned buffers are not copied; the caller owns them
     /// and must release or return them after use.
     /// </remarks>
-    public UnmanagedMemoryManager[] GetAllSnapshotRingsAsUnmanagedMemory(ReadResult readResult)
+    public UnmanagedMemoryManager[] GetAllSnapshotRingsAsUnmanagedMemory(RingSnapshot readResult)
     {
         var count = SnapshotRingCount;
 
@@ -204,7 +204,7 @@ public sealed partial class Connection
     /// receiving ring using the snapshot fence and returns them as raw
     /// <see cref="RingItem"/> values. Ownership is transferred to the caller.
     /// </remarks>
-    public RingItem[] GetAllSnapshotRings(ReadResult readResult)
+    public RingItem[] GetAllSnapshotRings(RingSnapshot readResult)
     {
         var count = SnapshotRingCount;
 

@@ -217,9 +217,8 @@ body {
 
   <nav class="hextra-max-navbar-width hx:mx-auto hx:flex hx:items-center hx:justify-end hx:gap-2 hx:h-16 hx:px-6">
     <a class="hx:flex hx:items-center hx:hover:opacity-75 hx:ltr:mr-auto hx:rtl:ml-auto" href="/zerg/">
-    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="Logo" height="32" width="32" />
-    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="Dark Logo" height="32" width="32" />
-    <span class="hx:mr-2 hx:font-extrabold hx:inline hx:select-none" title="zerg">zerg</span>
+    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
+    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
 </a>
 <a
   title=""
@@ -534,6 +533,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div>
             </li><li class="hx:flex hx:flex-col "><a
@@ -750,6 +757,14 @@ body {
     href="/zerg/docs/api-reference/configuration/"
     
   >Configuration Reference
+    </a>
+              
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
     </a>
               
             </li></ul>
@@ -1022,11 +1037,11 @@ body {
 <li>Faster than <code>Clear()</code> for hot-path pooling</li>
 </ul>
 <h3>Generation Counter<span class="hx:absolute hx:-mt-20" id="generation-counter"></span>
-    <a href="#generation-counter" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><p>The <code>_generation</code> counter (incremented on every reuse) serves as the <code>ValueTask</code> token. If a stale <code>ReadAsync()</code> completes after the connection has been reused, <code>GetResult()</code> detects the mismatched token and returns <code>ReadResult.Closed()</code> instead of delivering stale data. This prevents use-after-free bugs in the async machinery.</p>
+    <a href="#generation-counter" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><p>The <code>_generation</code> counter (incremented on every reuse) serves as the <code>ValueTask</code> token. If a stale <code>ReadAsync()</code> completes after the connection has been reused, <code>GetResult()</code> detects the mismatched token and returns <code>RingSnapshot.Closed()</code> instead of delivering stale data. This prevents use-after-free bugs in the async machinery.</p>
 <h2>Connection Object Layout<span class="hx:absolute hx:-mt-20" id="connection-object-layout"></span>
     <a href="#connection-object-layout" class="subheading-anchor" aria-label="Permalink for this section"></a></h2><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
-<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">partial</span> <span class="k">class</span> <span class="nc">Connection</span> <span class="p">:</span> <span class="n">IBufferWriter</span><span class="p">&lt;</span><span class="kt">byte</span><span class="p">&gt;,</span> <span class="n">IValueTaskSource</span><span class="p">&lt;</span><span class="n">ReadResult</span><span class="p">&gt;,</span> <span class="n">IValueTaskSource</span><span class="p">,</span> <span class="n">IDisposable</span>
+<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">partial</span> <span class="k">class</span> <span class="nc">Connection</span> <span class="p">:</span> <span class="n">IBufferWriter</span><span class="p">&lt;</span><span class="kt">byte</span><span class="p">&gt;,</span> <span class="n">IValueTaskSource</span><span class="p">&lt;</span><span class="n">RingSnapshot</span><span class="p">&gt;,</span> <span class="n">IValueTaskSource</span><span class="p">,</span> <span class="n">IDisposable</span>
 </span></span><span class="line"><span class="cl"><span class="p">{</span>
 </span></span><span class="line"><span class="cl">    <span class="c1">// Identity</span>
 </span></span><span class="line"><span class="cl">    <span class="kt">int</span> <span class="n">ClientFd</span><span class="p">;</span>
@@ -1035,7 +1050,7 @@ body {
 </span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl">    <span class="c1">// Read state</span>
 </span></span><span class="line"><span class="cl">    <span class="n">SpscRecvRing</span> <span class="n">_recv</span><span class="p">;</span>           <span class="c1">// capacity: 1024</span>
-</span></span><span class="line"><span class="cl">    <span class="n">ManualResetValueTaskSourceCore</span><span class="p">&lt;</span><span class="n">ReadResult</span><span class="p">&gt;</span> <span class="n">_readSignal</span><span class="p">;</span>
+</span></span><span class="line"><span class="cl">    <span class="n">ManualResetValueTaskSourceCore</span><span class="p">&lt;</span><span class="n">RingSnapshot</span><span class="p">&gt;</span> <span class="n">_readSignal</span><span class="p">;</span>
 </span></span><span class="line"><span class="cl">    <span class="kt">int</span> <span class="n">_armed</span><span class="p">,</span> <span class="n">_pending</span><span class="p">,</span> <span class="n">_closed</span><span class="p">;</span>
 </span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl">    <span class="c1">// Write state</span>

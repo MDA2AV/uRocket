@@ -147,9 +147,8 @@ Use `ConnectionStream` when you need to integrate with APIs that require `Stream
 - `System.Text.Json` serialization/deserialization
 - `StreamReader`/`StreamWriter` for text protocols
 - Third-party libraries that accept `Stream`
-- `PipeReader`/`PipeWriter` adapters
 
-For maximum performance, prefer the native `Connection` API directly (`ReadAsync`/`Write`/`FlushAsync`). `ConnectionStream` adds one copy on reads (from kernel buffers into your destination buffer) and wraps `ValueTask` as `Task` for `FlushAsync`.
+For zero-copy reads with partial consumption support, prefer `ConnectionPipeReader` instead. For maximum performance, prefer the native `Connection` API directly (`ReadAsync`/`Write`/`FlushAsync`). `ConnectionStream` adds one copy on reads (from kernel buffers into your destination buffer) and wraps `ValueTask` as `Task` for `FlushAsync`.
 
 ## Design Notes
 

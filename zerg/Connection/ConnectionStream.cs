@@ -116,6 +116,9 @@ public sealed class ConnectionStream : Stream
         foreach (var ring in rings)
             _inner.ReturnRing(ring.BufferId);
 
+        // Prepare for the next read cycle (resets the ManualResetValueTaskSourceCore).
+        _inner.ResetRead();
+
         return len;
     }
 

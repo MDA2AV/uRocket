@@ -1,31 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 156 64" fill="none">
   <defs>
     <linearGradient id="z" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#3ee8d0"/>
       <stop offset="100%" stop-color="#4a90ff"/>
     </linearGradient>
   </defs>
-  <!-- Head shield (cephalon) -->
-  <ellipse cx="32" cy="16" rx="16" ry="10" fill="url(#z)"/>
-  <!-- Eyes -->
-  <circle cx="24" cy="15" r="3" fill="#0b0d11"/>
-  <circle cx="40" cy="15" r="3" fill="#0b0d11"/>
-  <circle cx="24" cy="14.5" r="1" fill="#fff" opacity=".8"/>
-  <circle cx="40" cy="14.5" r="1" fill="#fff" opacity=".8"/>
-  <!-- Body segments (thorax) -->
-  <path d="M18 24 h28 v5 h-28 z" fill="url(#z)" opacity=".9"/>
-  <path d="M20 31 h24 v5 h-24 z" fill="url(#z)" opacity=".8"/>
-  <path d="M21 38 h22 v5 h-22 z" fill="url(#z)" opacity=".7"/>
-  <path d="M22 45 h20 v4 h-20 z" fill="url(#z)" opacity=".6"/>
-  <!-- Tail (pygidium) -->
-  <path d="M24 51 h16 l-4 7 h-8 z" fill="url(#z)" opacity=".5"/>
-  <!-- Central axis line -->
-  <line x1="32" y1="10" x2="32" y2="58" stroke="#0b0d11" stroke-width="1.5" opacity=".3"/>
-  <!-- Side ribs (pleural lobes) -->
-  <line x1="20" y1="26" x2="14" y2="28" stroke="url(#z)" stroke-width="2" stroke-linecap="round" opacity=".6"/>
-  <line x1="44" y1="26" x2="50" y2="28" stroke="url(#z)" stroke-width="2" stroke-linecap="round" opacity=".6"/>
-  <line x1="21" y1="33" x2="16" y2="35" stroke="url(#z)" stroke-width="2" stroke-linecap="round" opacity=".5"/>
-  <line x1="43" y1="33" x2="48" y2="35" stroke="url(#z)" stroke-width="2" stroke-linecap="round" opacity=".5"/>
-  <line x1="22" y1="40" x2="17" y2="42" stroke="url(#z)" stroke-width="2" stroke-linecap="round" opacity=".4"/>
-  <line x1="42" y1="40" x2="47" y2="42" stroke="url(#z)" stroke-width="2" stroke-linecap="round" opacity=".4"/>
+
+  <!-- Z (custom path) -->
+  <path d="M4 8 L48 8 L48 16 L18 48 L48 48 L48 56 L4 56 L4 48 L34 16 L4 16Z" fill="url(#z)"/>
+
+  <!-- erg (text) -->
+  <text x="52" y="53" font-family="Arial, Helvetica, sans-serif" font-weight="bold" font-size="52" fill="url(#z)">erg</text>
 </svg>

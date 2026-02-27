@@ -120,12 +120,12 @@ Connections can be pooled to avoid repeated allocation. The `Connection` class s
 
 ### Generation Counter
 
-The `_generation` counter (incremented on every reuse) serves as the `ValueTask` token. If a stale `ReadAsync()` completes after the connection has been reused, `GetResult()` detects the mismatched token and returns `ReadResult.Closed()` instead of delivering stale data. This prevents use-after-free bugs in the async machinery.
+The `_generation` counter (incremented on every reuse) serves as the `ValueTask` token. If a stale `ReadAsync()` completes after the connection has been reused, `GetResult()` detects the mismatched token and returns `RingSnapshot.Closed()` instead of delivering stale data. This prevents use-after-free bugs in the async machinery.
 
 ## Connection Object Layout
 
 ```csharp
-partial class Connection : IBufferWriter<byte>, IValueTaskSource<ReadResult>, IValueTaskSource, IDisposable
+partial class Connection : IBufferWriter<byte>, IValueTaskSource<RingSnapshot>, IValueTaskSource, IDisposable
 {
     // Identity
     int ClientFd;
@@ -134,7 +134,7 @@ partial class Connection : IBufferWriter<byte>, IValueTaskSource<ReadResult>, IV
 
     // Read state
     SpscRecvRing _recv;           // capacity: 1024
-    ManualResetValueTaskSourceCore<ReadResult> _readSignal;
+    ManualResetValueTaskSourceCore<RingSnapshot> _readSignal;
     int _armed, _pending, _closed;
 
     // Write state

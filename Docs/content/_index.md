@@ -4,7 +4,7 @@ layout: hextra-home
 ---
 
 {{< hextra/hero-badge link="https://www.nuget.org/packages/zerg" >}}
-  NuGet v0.3.12
+  NuGet v0.3.14
 {{< /hextra/hero-badge >}}
 
 <div style="margin-top: 1.5rem; margin-bottom: 1.25rem;">
@@ -48,12 +48,12 @@ layout: hextra-home
   >}}
   {{< hextra/feature-card
     title="Flexible API"
-    subtitle="High-level ReadOnlySequence APIs for easy parsing, low-level RingItem access for maximum control, IBufferWriter for pipelined writes, and a Stream adapter for BCL compatibility."
+    subtitle="High-level ReadOnlySequence APIs for easy parsing, low-level RingItem access for maximum control, IBufferWriter for pipelined writes, a zero-copy PipeReader adapter, and a Stream adapter for BCL compatibility."
     link="docs/api-reference/"
   >}}
   {{< hextra/feature-card
     title="Production Ready"
-    subtitle="Includes a TechEmpower benchmark HTTP server, AOT-compatible, ships bundled native libraries for glibc and musl, and is available on NuGet."
+    subtitle="AOT-compatible, ships bundled native libraries for glibc and musl, and is available on NuGet."
     link="docs/getting-started/installation/"
   >}}
 {{< /hextra/feature-grid >}}

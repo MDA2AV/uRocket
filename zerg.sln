@@ -6,10 +6,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "zerg", "zerg\zerg.csproj", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Examples", "Examples\Examples.csproj", "{CD553753-D396-4AB9-A24B-7DBD0C6E2408}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "TechEmpower", "TechEmpower", "{21CD88A2-4B4A-48B6-9CBB-59FC9EE7B682}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BenchmarkApp", "TechEmpower\BenchmarkApp\BenchmarkApp.csproj", "{FC2302BE-3C35-421F-AFEE-233AC87305C2}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj", "{80CF5BC8-6CB3-42FC-A6FB-F7EDD1B4BA70}"
 EndProject
 Global
@@ -58,18 +54,6 @@ Global
 		{CD553753-D396-4AB9-A24B-7DBD0C6E2408}.Release|x64.Build.0 = Release|Any CPU
 		{CD553753-D396-4AB9-A24B-7DBD0C6E2408}.Release|x86.ActiveCfg = Release|Any CPU
 		{CD553753-D396-4AB9-A24B-7DBD0C6E2408}.Release|x86.Build.0 = Release|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Debug|x64.Build.0 = Debug|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Debug|x86.Build.0 = Debug|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Release|Any CPU.Build.0 = Release|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Release|x64.ActiveCfg = Release|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Release|x64.Build.0 = Release|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Release|x86.ActiveCfg = Release|Any CPU
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2}.Release|x86.Build.0 = Release|Any CPU
 		{80CF5BC8-6CB3-42FC-A6FB-F7EDD1B4BA70}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{80CF5BC8-6CB3-42FC-A6FB-F7EDD1B4BA70}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{80CF5BC8-6CB3-42FC-A6FB-F7EDD1B4BA70}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -87,6 +71,5 @@ Global
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{FC2302BE-3C35-421F-AFEE-233AC87305C2} = {21CD88A2-4B4A-48B6-9CBB-59FC9EE7B682}
 	EndGlobalSection
 EndGlobal

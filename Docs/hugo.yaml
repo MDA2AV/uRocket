@@ -37,12 +37,12 @@ menu:
 params:
   description: High-performance io_uring networking for C#
   navbar:
-    displayTitle: true
+    displayTitle: false
     displayLogo: true
     logo:
       path: favicon.svg
       dark: favicon.svg
-      width: 32
+      width: 100
       height: 32
   footer:
     displayCopyright: false

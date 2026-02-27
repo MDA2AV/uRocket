@@ -40,7 +40,7 @@
 &lt;p&gt;Or add the package reference directly to your &lt;code&gt;.csproj&lt;/code&gt;:&lt;/p&gt;
 &lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
 
-&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-xml&#34; data-lang=&#34;xml&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nt&#34;&gt;&amp;lt;PackageReference&lt;/span&gt; &lt;span class=&#34;na&#34;&gt;Include=&lt;/span&gt;&lt;span class=&#34;s&#34;&gt;&amp;#34;zerg&amp;#34;&lt;/span&gt; &lt;span class=&#34;na&#34;&gt;Version=&lt;/span&gt;&lt;span class=&#34;s&#34;&gt;&amp;#34;0.3.12&amp;#34;&lt;/span&gt; &lt;span class=&#34;nt&#34;&gt;/&amp;gt;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-xml&#34; data-lang=&#34;xml&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nt&#34;&gt;&amp;lt;PackageReference&lt;/span&gt; &lt;span class=&#34;na&#34;&gt;Include=&lt;/span&gt;&lt;span class=&#34;s&#34;&gt;&amp;#34;zerg&amp;#34;&lt;/span&gt; &lt;span class=&#34;na&#34;&gt;Version=&lt;/span&gt;&lt;span class=&#34;s&#34;&gt;&amp;#34;*&amp;#34;&lt;/span&gt; &lt;span class=&#34;nt&#34;&gt;/&amp;gt;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
   &lt;button
     class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
     title=&#34;Copy code&#34;
@@ -50,7 +50,7 @@
   &lt;/button&gt;
 &lt;/div&gt;
 &lt;/div&gt;
-&lt;p&gt;zerg targets both &lt;strong&gt;.NET 9.0&lt;/strong&gt; and &lt;strong&gt;.NET 10.0&lt;/strong&gt;.&lt;/p&gt;
+&lt;p&gt;zerg targets &lt;strong&gt;.NET 8.0&lt;/strong&gt;, &lt;strong&gt;.NET 9.0&lt;/strong&gt;, and &lt;strong&gt;.NET 10.0&lt;/strong&gt;.&lt;/p&gt;
 &lt;h2&gt;Native Dependencies&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;native-dependencies&#34;&gt;&lt;/span&gt;
     &lt;a href=&#34;#native-dependencies&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;zerg ships with bundled native libraries for the &lt;code&gt;io_uring&lt;/code&gt; shim:&lt;/p&gt;
 &lt;table&gt;
@@ -75,9 +75,7 @@
 &lt;h3&gt;Kernel Requirements&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;kernel-requirements&#34;&gt;&lt;/span&gt;
     &lt;a href=&#34;#kernel-requirements&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;zerg requires a Linux kernel with &lt;code&gt;io_uring&lt;/code&gt; support:&lt;/p&gt;
 &lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Minimum:&lt;/strong&gt; Linux 5.10+ (basic &lt;code&gt;io_uring&lt;/code&gt; operations)&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Recommended:&lt;/strong&gt; Linux 6.0+ (multishot accept, buffer rings, &lt;code&gt;IORING_SETUP_SINGLE_ISSUER&lt;/code&gt;)&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Optimal:&lt;/strong&gt; Linux 6.1+ (&lt;code&gt;IORING_SETUP_DEFER_TASKRUN&lt;/code&gt;)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Minimum:&lt;/strong&gt; Linux 6.1+ (multishot accept, multishot recv, buffer rings, &lt;code&gt;IORING_SETUP_DEFER_TASKRUN&lt;/code&gt;, &lt;code&gt;IORING_SETUP_SINGLE_ISSUER&lt;/code&gt;)&lt;/li&gt;
 &lt;/ul&gt;
 &lt;p&gt;You can check your kernel version with:&lt;/p&gt;
 &lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
@@ -96,8 +94,8 @@
     &lt;a href=&#34;#build-from-source&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Clone the repository and build with the .NET SDK:&lt;/p&gt;
 &lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
 
-&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;git clone https://github.com/MDA2AV/uRocket.git
-&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nb&#34;&gt;cd&lt;/span&gt; uRocket
+&lt;div&gt;&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; class=&#34;chroma&#34;&gt;&lt;code class=&#34;language-bash&#34; data-lang=&#34;bash&#34;&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;git clone https://github.com/MDA2AV/zerg.git
+&lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;&lt;span class=&#34;nb&#34;&gt;cd&lt;/span&gt; zerg
 &lt;/span&gt;&lt;/span&gt;&lt;span class=&#34;line&#34;&gt;&lt;span class=&#34;cl&#34;&gt;dotnet build&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class=&#34;hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0&#34;&gt;
   &lt;button
     class=&#34;hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50&#34;
@@ -108,7 +106,7 @@
   &lt;/button&gt;
 &lt;/div&gt;
 &lt;/div&gt;
-&lt;p&gt;The solution file &lt;code&gt;zerg.sln&lt;/code&gt; includes the core library, examples, playground, and TechEmpower benchmark projects.&lt;/p&gt;
+&lt;p&gt;The solution file &lt;code&gt;zerg.sln&lt;/code&gt; includes the core library, examples, and playground projects.&lt;/p&gt;
 &lt;h2&gt;AOT Compilation&lt;span class=&#34;hx:absolute hx:-mt-20&#34; id=&#34;aot-compilation&#34;&gt;&lt;/span&gt;
     &lt;a href=&#34;#aot-compilation&#34; class=&#34;subheading-anchor&#34; aria-label=&#34;Permalink for this section&#34;&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;zerg is compatible with Native AOT compilation. The native &lt;code&gt;liburingshim.so&lt;/code&gt; P/Invoke bindings use static linking-friendly signatures. To publish with AOT:&lt;/p&gt;
 &lt;div class=&#34;hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code&#34;&gt;
@@ -149,10 +147,6 @@
       &lt;tr&gt;
           &lt;td&gt;&lt;code&gt;Playground&lt;/code&gt;&lt;/td&gt;
           &lt;td&gt;Development sandbox&lt;/td&gt;
-      &lt;/tr&gt;
-      &lt;tr&gt;
-          &lt;td&gt;&lt;code&gt;TechEmpower/BenchmarkApp&lt;/code&gt;&lt;/td&gt;
-          &lt;td&gt;HTTP/1.1 benchmark server&lt;/td&gt;
       &lt;/tr&gt;
   &lt;/tbody&gt;
 &lt;/table&gt;
@@ -284,7 +278,7 @@
 &lt;ol&gt;
 &lt;li&gt;If data is already queued in the connection&amp;rsquo;s SPSC ring, it returns immediately&lt;/li&gt;
 &lt;li&gt;Otherwise, the calling task parks until the reactor delivers data via a CQE completion&lt;/li&gt;
-&lt;li&gt;The returned &lt;code&gt;ReadResult&lt;/code&gt; contains a snapshot boundary so you drain exactly the data that was available at that point&lt;/li&gt;
+&lt;li&gt;The returned &lt;code&gt;RingSnapshot&lt;/code&gt; contains a snapshot boundary so you drain exactly the data that was available at that point&lt;/li&gt;
 &lt;/ol&gt;
 &lt;p&gt;When you call &lt;code&gt;connection.FlushAsync()&lt;/code&gt;:&lt;/p&gt;
 &lt;ol&gt;

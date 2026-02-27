@@ -10,7 +10,7 @@
 <link fetchpriority="low" href="/zerg/site.webmanifest" rel="manifest" />
 <title>API Reference – zerg</title>
   <meta name="description" content="Complete reference for all public APIs in zerg.
-EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, ReadResult, RingItem, ReturnRing Connection: WriteWrite, IBufferWriter, FlushAsync ConnectionStreamBCL Stream adapter for compatibility ConfigurationFull config reference tables " /><link rel="canonical" href="http://localhost:1313/zerg/docs/api-reference/" itemprop="url" />
+EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, RingSnapshot, RingItem, ReturnRing Connection: WriteWrite, IBufferWriter, FlushAsync ConnectionPipeReaderZero-copy PipeReader adapter ConnectionStreamBCL Stream adapter for compatibility ConfigurationFull config reference tables " /><link rel="canonical" href="http://localhost:1313/zerg/docs/api-reference/" itemprop="url" />
 
 <meta property="og:title" content="API Reference">
 <meta
@@ -30,12 +30,12 @@ EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, ReadResult, R
 
   <meta itemprop="name" content="API Reference">
   <meta itemprop="description" content="Complete reference for all public APIs in zerg.
-EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, ReadResult, RingItem, ReturnRing Connection: WriteWrite, IBufferWriter, FlushAsync ConnectionStreamBCL Stream adapter for compatibility ConfigurationFull config reference tables">
-  <meta itemprop="wordCount" content="30">
+EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, RingSnapshot, RingItem, ReturnRing Connection: WriteWrite, IBufferWriter, FlushAsync ConnectionPipeReaderZero-copy PipeReader adapter ConnectionStreamBCL Stream adapter for compatibility ConfigurationFull config reference tables">
+  <meta itemprop="wordCount" content="33">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="API Reference">
   <meta name="twitter:description" content="Complete reference for all public APIs in zerg.
-EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, ReadResult, RingItem, ReturnRing Connection: WriteWrite, IBufferWriter, FlushAsync ConnectionStreamBCL Stream adapter for compatibility ConfigurationFull config reference tables">
+EngineEngine, Listen, AcceptAsync, Stop Connection: ReadReadAsync, RingSnapshot, RingItem, ReturnRing Connection: WriteWrite, IBufferWriter, FlushAsync ConnectionPipeReaderZero-copy PipeReader adapter ConnectionStreamBCL Stream adapter for compatibility ConfigurationFull config reference tables">
 <link href="/zerg/css/compiled/main.css" rel="stylesheet" />
     <link href="/zerg/css/variables.css" rel="stylesheet" />
     <link href="/zerg/css/custom.css" rel="stylesheet" />
@@ -159,9 +159,8 @@ body {
 
   <nav class="hextra-max-navbar-width hx:mx-auto hx:flex hx:items-center hx:justify-end hx:gap-2 hx:h-16 hx:px-6">
     <a class="hx:flex hx:items-center hx:hover:opacity-75 hx:ltr:mr-auto hx:rtl:ml-auto" href="/zerg/">
-    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="Logo" height="32" width="32" />
-    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="Dark Logo" height="32" width="32" />
-    <span class="hx:mr-2 hx:font-extrabold hx:inline hx:select-none" title="zerg">zerg</span>
+    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
+    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
 </a>
 <a
   title=""
@@ -432,6 +431,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div>
             </li><li class="hx:flex hx:flex-col "><a
@@ -650,6 +657,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div></li>
           <li class=""><a
@@ -765,10 +780,13 @@ body {
       ><span class="hextra-card-icon hx:flex hx:font-semibold hx:items-start hx:gap-2 hx:pt-4 hx:px-4 hx:text-gray-700 hx:hover:text-gray-900 hx:dark:text-neutral-200 hx:dark:hover:text-neutral-50">Engine</span><div class="hextra-card-subtitle hx:line-clamp-3 hx:text-sm hx:font-normal hx:text-gray-500 hx:dark:text-gray-400 hx:px-4 hx:mb-4 hx:mt-2">Engine, Listen, AcceptAsync, Stop</div></a>
   <a
     class="hextra-card hx:group hx:flex hx:flex-col hx:justify-start hx:overflow-hidden hx:rounded-lg hx:border hx:border-gray-200 hx:text-current hx:no-underline hx:dark:shadow-none hx:hover:shadow-gray-100 hx:dark:hover:shadow-none hx:shadow-gray-100 hx:active:shadow-sm hx:active:shadow-gray-200 hx:transition-all hx:duration-200 hx:hover:border-gray-300 hx:bg-transparent hx:shadow-xs hx:dark:border-neutral-800 hx:hover:bg-slate-50 hx:hover:shadow-md hx:dark:hover:border-neutral-700 hx:dark:hover:bg-neutral-900"href="connection-read"
-      ><span class="hextra-card-icon hx:flex hx:font-semibold hx:items-start hx:gap-2 hx:pt-4 hx:px-4 hx:text-gray-700 hx:hover:text-gray-900 hx:dark:text-neutral-200 hx:dark:hover:text-neutral-50">Connection: Read</span><div class="hextra-card-subtitle hx:line-clamp-3 hx:text-sm hx:font-normal hx:text-gray-500 hx:dark:text-gray-400 hx:px-4 hx:mb-4 hx:mt-2">ReadAsync, ReadResult, RingItem, ReturnRing</div></a>
+      ><span class="hextra-card-icon hx:flex hx:font-semibold hx:items-start hx:gap-2 hx:pt-4 hx:px-4 hx:text-gray-700 hx:hover:text-gray-900 hx:dark:text-neutral-200 hx:dark:hover:text-neutral-50">Connection: Read</span><div class="hextra-card-subtitle hx:line-clamp-3 hx:text-sm hx:font-normal hx:text-gray-500 hx:dark:text-gray-400 hx:px-4 hx:mb-4 hx:mt-2">ReadAsync, RingSnapshot, RingItem, ReturnRing</div></a>
   <a
     class="hextra-card hx:group hx:flex hx:flex-col hx:justify-start hx:overflow-hidden hx:rounded-lg hx:border hx:border-gray-200 hx:text-current hx:no-underline hx:dark:shadow-none hx:hover:shadow-gray-100 hx:dark:hover:shadow-none hx:shadow-gray-100 hx:active:shadow-sm hx:active:shadow-gray-200 hx:transition-all hx:duration-200 hx:hover:border-gray-300 hx:bg-transparent hx:shadow-xs hx:dark:border-neutral-800 hx:hover:bg-slate-50 hx:hover:shadow-md hx:dark:hover:border-neutral-700 hx:dark:hover:bg-neutral-900"href="connection-write"
       ><span class="hextra-card-icon hx:flex hx:font-semibold hx:items-start hx:gap-2 hx:pt-4 hx:px-4 hx:text-gray-700 hx:hover:text-gray-900 hx:dark:text-neutral-200 hx:dark:hover:text-neutral-50">Connection: Write</span><div class="hextra-card-subtitle hx:line-clamp-3 hx:text-sm hx:font-normal hx:text-gray-500 hx:dark:text-gray-400 hx:px-4 hx:mb-4 hx:mt-2">Write, IBufferWriter, FlushAsync</div></a>
+  <a
+    class="hextra-card hx:group hx:flex hx:flex-col hx:justify-start hx:overflow-hidden hx:rounded-lg hx:border hx:border-gray-200 hx:text-current hx:no-underline hx:dark:shadow-none hx:hover:shadow-gray-100 hx:dark:hover:shadow-none hx:shadow-gray-100 hx:active:shadow-sm hx:active:shadow-gray-200 hx:transition-all hx:duration-200 hx:hover:border-gray-300 hx:bg-transparent hx:shadow-xs hx:dark:border-neutral-800 hx:hover:bg-slate-50 hx:hover:shadow-md hx:dark:hover:border-neutral-700 hx:dark:hover:bg-neutral-900"href="connection-pipereader"
+      ><span class="hextra-card-icon hx:flex hx:font-semibold hx:items-start hx:gap-2 hx:pt-4 hx:px-4 hx:text-gray-700 hx:hover:text-gray-900 hx:dark:text-neutral-200 hx:dark:hover:text-neutral-50">ConnectionPipeReader</span><div class="hextra-card-subtitle hx:line-clamp-3 hx:text-sm hx:font-normal hx:text-gray-500 hx:dark:text-gray-400 hx:px-4 hx:mb-4 hx:mt-2">Zero-copy PipeReader adapter</div></a>
   <a
     class="hextra-card hx:group hx:flex hx:flex-col hx:justify-start hx:overflow-hidden hx:rounded-lg hx:border hx:border-gray-200 hx:text-current hx:no-underline hx:dark:shadow-none hx:hover:shadow-gray-100 hx:dark:hover:shadow-none hx:shadow-gray-100 hx:active:shadow-sm hx:active:shadow-gray-200 hx:transition-all hx:duration-200 hx:hover:border-gray-300 hx:bg-transparent hx:shadow-xs hx:dark:border-neutral-800 hx:hover:bg-slate-50 hx:hover:shadow-md hx:dark:hover:border-neutral-700 hx:dark:hover:bg-neutral-900"href="connection-stream"
       ><span class="hextra-card-icon hx:flex hx:font-semibold hx:items-start hx:gap-2 hx:pt-4 hx:px-4 hx:text-gray-700 hx:hover:text-gray-900 hx:dark:text-neutral-200 hx:dark:hover:text-neutral-50">ConnectionStream</span><div class="hextra-card-subtitle hx:line-clamp-3 hx:text-sm hx:font-normal hx:text-gray-500 hx:dark:text-gray-400 hx:px-4 hx:mb-4 hx:mt-2">BCL Stream adapter for compatibility</div></a>

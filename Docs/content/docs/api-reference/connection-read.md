@@ -11,7 +11,7 @@ Every read follows this pattern:
 
 ```csharp
 // 1. Wait for data
-ReadResult result = await connection.ReadAsync();
+RingSnapshot result = await connection.ReadAsync();
 
 // 2. Check for close
 if (result.IsClosed) return;
@@ -25,15 +25,15 @@ connection.ResetRead();
 ## ReadAsync
 
 ```csharp
-public ValueTask<ReadResult> ReadAsync()
+public ValueTask<RingSnapshot> ReadAsync()
 ```
 
 Waits for at least one received buffer to be available, or for the connection to close.
 
-**Returns:** A `ReadResult` containing a tail snapshot and close status.
+**Returns:** A `RingSnapshot` containing a tail snapshot and close status.
 
 **Fast paths (returns synchronously):**
-- Connection already closed → `ReadResult.Closed()`
+- Connection already closed → `RingSnapshot.Closed()`
 - Data already pending in the receive ring → immediate result with snapshot
 - `_pending` flag set from previous produce → immediate result
 
@@ -44,10 +44,10 @@ Waits for at least one received buffer to be available, or for the connection to
 - Only **one** outstanding `ReadAsync` per connection at a time (single waiter)
 - After processing the batch, call `ResetRead()` before the next `ReadAsync()`
 
-## ReadResult
+## RingSnapshot
 
 ```csharp
-public readonly struct ReadResult
+public readonly struct RingSnapshot
 {
     public long TailSnapshot { get; }
     public bool IsClosed { get; }
@@ -78,7 +78,7 @@ These methods dequeue all items in the current snapshot batch. Call one of these
 ### GetAllSnapshotRingsAsUnmanagedMemory
 
 ```csharp
-public UnmanagedMemoryManager[] GetAllSnapshotRingsAsUnmanagedMemory(ReadResult readResult)
+public UnmanagedMemoryManager[] GetAllSnapshotRingsAsUnmanagedMemory(RingSnapshot readResult)
 ```
 
 Returns an array of `UnmanagedMemoryManager` instances, one per received buffer in the snapshot. Each wraps a native pointer with a managed `Memory<byte>` view.
@@ -95,7 +95,7 @@ rings.ReturnRingBuffers(connection.Reactor);
 ### GetAllSnapshotRings
 
 ```csharp
-public RingItem[] GetAllSnapshotRings(ReadResult readResult)
+public RingItem[] GetAllSnapshotRings(RingSnapshot readResult)
 ```
 
 Returns raw `RingItem` values from the snapshot. Each item has `Ptr`, `Length`, and `BufferId`.
@@ -114,7 +114,7 @@ foreach (var item in items)
 
 ```csharp
 public bool TryDynamicallyGetAllSnapshotRingsAsReadOnlySequence(
-    ReadResult readResult,
+    RingSnapshot readResult,
     out List<UnmanagedMemoryManager> rings,
     out ReadOnlySequence<byte> sequence)
 ```
@@ -125,7 +125,7 @@ Builds a zero-copy `ReadOnlySequence<byte>` over all segments. Returns `false` i
 
 ```csharp
 public bool TryDynamicallyGetAllSnapshotRingsAsUnmanagedMemory(
-    ReadResult readResult,
+    RingSnapshot readResult,
     out List<UnmanagedMemoryManager> rings)
 ```
 
@@ -135,7 +135,7 @@ Dequeues all segments as a list of `UnmanagedMemoryManager`. Returns `false` if 
 
 ```csharp
 public bool TryDynamicallyGetAllSnapshotRings(
-    ReadResult readResult,
+    RingSnapshot readResult,
     out List<RingItem> rings)
 ```
 
@@ -248,4 +248,4 @@ Called by the reactor when a recv CQE completes. Enqueues a `RingItem` into the 
 
 ### MarkClosed (Internal)
 
-Sets `_closed = 1` and wakes any armed handler so it receives `ReadResult.Closed()`.
+Sets `_closed = 1` and wakes any armed handler so it receives `RingSnapshot.Closed()`.

@@ -48,6 +48,8 @@
   </url><url>
     <loc>http://localhost:1313/zerg/docs/api-reference/configuration/</loc>
   </url><url>
+    <loc>http://localhost:1313/zerg/docs/api-reference/connection-pipereader/</loc>
+  </url><url>
     <loc>http://localhost:1313/zerg/docs/internals/</loc>
   </url><url>
     <loc>http://localhost:1313/zerg/docs/architecture/threading-model/</loc>

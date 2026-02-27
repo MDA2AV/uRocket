@@ -106,7 +106,7 @@ When you call `connection.ReadAsync()`:
 
 1. If data is already queued in the connection's SPSC ring, it returns immediately
 2. Otherwise, the calling task parks until the reactor delivers data via a CQE completion
-3. The returned `ReadResult` contains a snapshot boundary so you drain exactly the data that was available at that point
+3. The returned `RingSnapshot` contains a snapshot boundary so you drain exactly the data that was available at that point
 
 When you call `connection.FlushAsync()`:
 

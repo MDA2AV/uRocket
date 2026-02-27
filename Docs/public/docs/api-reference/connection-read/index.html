@@ -11,7 +11,7 @@
 <title>Connection: Read – zerg</title>
   <meta name="description" content="The read API provides async waiting for inbound data, snapshot-based batch draining, and buffer management.
 Core Read Cycle Every read follows this pattern:
-// 1. Wait for data ReadResult result = await connection.ReadAsync(); // 2. Check for close if (result.IsClosed) return; // 3. Drain and process buffers // 4. Return buffers to kernel // 5. Reset for next read connection.ResetRead(); ReadAsync public ValueTask&lt;ReadResult&gt; ReadAsync() Waits for at least one received buffer to be available, or for the connection to close." /><link rel="canonical" href="http://localhost:1313/zerg/docs/api-reference/connection-read/" itemprop="url" />
+// 1. Wait for data RingSnapshot result = await connection.ReadAsync(); // 2. Check for close if (result.IsClosed) return; // 3. Drain and process buffers // 4. Return buffers to kernel // 5. Reset for next read connection.ResetRead(); ReadAsync public ValueTask&lt;RingSnapshot&gt; ReadAsync() Waits for at least one received buffer to be available, or for the connection to close." /><link rel="canonical" href="http://localhost:1313/zerg/docs/api-reference/connection-read/" itemprop="url" />
 
 <meta property="og:title" content="Connection: Read">
 <meta
@@ -24,7 +24,7 @@ Core Read Cycle
 
 
 // 1. Wait for data
-ReadResult result = await connection.ReadAsync();
+RingSnapshot result = await connection.ReadAsync();
 
 // 2. Check for close
 if (result.IsClosed) return;
@@ -42,7 +42,7 @@ connection.ResetRead();
 ReadAsync
     
 
-public ValueTask&lt;ReadResult&gt; ReadAsync()
+public ValueTask&lt;RingSnapshot&gt; ReadAsync()
   
     
 
@@ -65,13 +65,13 @@ Waits for at least one received buffer to be available, or for the connection to
   <meta itemprop="name" content="Connection: Read">
   <meta itemprop="description" content="The read API provides async waiting for inbound data, snapshot-based batch draining, and buffer management.
 Core Read Cycle Every read follows this pattern:
-// 1. Wait for data ReadResult result = await connection.ReadAsync(); // 2. Check for close if (result.IsClosed) return; // 3. Drain and process buffers // 4. Return buffers to kernel // 5. Reset for next read connection.ResetRead(); ReadAsync public ValueTask&lt;ReadResult&gt; ReadAsync() Waits for at least one received buffer to be available, or for the connection to close.">
+// 1. Wait for data RingSnapshot result = await connection.ReadAsync(); // 2. Check for close if (result.IsClosed) return; // 3. Drain and process buffers // 4. Return buffers to kernel // 5. Reset for next read connection.ResetRead(); ReadAsync public ValueTask&lt;RingSnapshot&gt; ReadAsync() Waits for at least one received buffer to be available, or for the connection to close.">
   <meta itemprop="wordCount" content="771">
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Connection: Read">
   <meta name="twitter:description" content="The read API provides async waiting for inbound data, snapshot-based batch draining, and buffer management.
 Core Read Cycle Every read follows this pattern:
-// 1. Wait for data ReadResult result = await connection.ReadAsync(); // 2. Check for close if (result.IsClosed) return; // 3. Drain and process buffers // 4. Return buffers to kernel // 5. Reset for next read connection.ResetRead(); ReadAsync public ValueTask&lt;ReadResult&gt; ReadAsync() Waits for at least one received buffer to be available, or for the connection to close.">
+// 1. Wait for data RingSnapshot result = await connection.ReadAsync(); // 2. Check for close if (result.IsClosed) return; // 3. Drain and process buffers // 4. Return buffers to kernel // 5. Reset for next read connection.ResetRead(); ReadAsync public ValueTask&lt;RingSnapshot&gt; ReadAsync() Waits for at least one received buffer to be available, or for the connection to close.">
 <link href="/zerg/css/compiled/main.css" rel="stylesheet" />
     <link href="/zerg/css/variables.css" rel="stylesheet" />
     <link href="/zerg/css/custom.css" rel="stylesheet" />
@@ -195,9 +195,8 @@ body {
 
   <nav class="hextra-max-navbar-width hx:mx-auto hx:flex hx:items-center hx:justify-end hx:gap-2 hx:h-16 hx:px-6">
     <a class="hx:flex hx:items-center hx:hover:opacity-75 hx:ltr:mr-auto hx:rtl:ml-auto" href="/zerg/">
-    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="Logo" height="32" width="32" />
-    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="Dark Logo" height="32" width="32" />
-    <span class="hx:mr-2 hx:font-extrabold hx:inline hx:select-none" title="zerg">zerg</span>
+    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
+    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
 </a>
 <a
   title=""
@@ -457,9 +456,9 @@ body {
             </li>
           <li>
               <a
-                href="#readresult"
+                href="#ringsnapshot"
                 class="hx:flex hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [word-break:break-word] hx:cursor-pointer [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] hx:contrast-more:border hx:gap-2 hx:before:opacity-25 hx:before:content-['#'] hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:text-gray-900 hx:contrast-more:dark:text-gray-50 hx:contrast-more:border-transparent hx:contrast-more:hover:border-gray-900 hx:contrast-more:dark:hover:border-gray-50"
-              >ReadResult</a>
+              >RingSnapshot</a>
             </li>
           <li>
               <a
@@ -528,6 +527,14 @@ body {
     href="/zerg/docs/api-reference/configuration/"
     
   >Configuration Reference
+    </a>
+              
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
     </a>
               
             </li></ul>
@@ -748,6 +755,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div></li>
           <li class=""><a
@@ -843,7 +858,7 @@ body {
         </a>
       </li>
       <li class="hx:my-2 hx:scroll-my-6 hx:scroll-py-6">
-        <a class="hx:font-medium hx:inline-block hx:text-gray-500 hx:hover:text-gray-900 hx:dark:text-gray-400 hx:dark:hover:text-gray-300 hx:contrast-more:text-gray-900 hx:contrast-more:underline hx:contrast-more:dark:text-gray-50 hx:w-full hx:break-words" href="#readresult">ReadResult
+        <a class="hx:font-medium hx:inline-block hx:text-gray-500 hx:hover:text-gray-900 hx:dark:text-gray-400 hx:dark:hover:text-gray-300 hx:contrast-more:text-gray-900 hx:contrast-more:underline hx:contrast-more:dark:text-gray-50 hx:w-full hx:break-words" href="#ringsnapshot">RingSnapshot
         </a>
       </li>
       <li class="hx:my-2 hx:scroll-my-6 hx:scroll-py-6">
@@ -957,7 +972,7 @@ body {
 <div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
 <div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="c1">// 1. Wait for data</span>
-</span></span><span class="line"><span class="cl"><span class="n">ReadResult</span> <span class="n">result</span> <span class="p">=</span> <span class="k">await</span> <span class="n">connection</span><span class="p">.</span><span class="n">ReadAsync</span><span class="p">();</span>
+</span></span><span class="line"><span class="cl"><span class="n">RingSnapshot</span> <span class="n">result</span> <span class="p">=</span> <span class="k">await</span> <span class="n">connection</span><span class="p">.</span><span class="n">ReadAsync</span><span class="p">();</span>
 </span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl"><span class="c1">// 2. Check for close</span>
 </span></span><span class="line"><span class="cl"><span class="k">if</span> <span class="p">(</span><span class="n">result</span><span class="p">.</span><span class="n">IsClosed</span><span class="p">)</span> <span class="k">return</span><span class="p">;</span>
@@ -978,7 +993,7 @@ body {
 <h2>ReadAsync<span class="hx:absolute hx:-mt-20" id="readasync"></span>
     <a href="#readasync" class="subheading-anchor" aria-label="Permalink for this section"></a></h2><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
-<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="n">ValueTask</span><span class="p">&lt;</span><span class="n">ReadResult</span><span class="p">&gt;</span> <span class="n">ReadAsync</span><span class="p">()</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="n">ValueTask</span><span class="p">&lt;</span><span class="n">RingSnapshot</span><span class="p">&gt;</span> <span class="n">ReadAsync</span><span class="p">()</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
     class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
     title="Copy code"
@@ -989,10 +1004,10 @@ body {
 </div>
 </div>
 <p>Waits for at least one received buffer to be available, or for the connection to close.</p>
-<p><strong>Returns:</strong> A <code>ReadResult</code> containing a tail snapshot and close status.</p>
+<p><strong>Returns:</strong> A <code>RingSnapshot</code> containing a tail snapshot and close status.</p>
 <p><strong>Fast paths (returns synchronously):</strong></p>
 <ul>
-<li>Connection already closed → <code>ReadResult.Closed()</code></li>
+<li>Connection already closed → <code>RingSnapshot.Closed()</code></li>
 <li>Data already pending in the receive ring → immediate result with snapshot</li>
 <li><code>_pending</code> flag set from previous produce → immediate result</li>
 </ul>
@@ -1005,10 +1020,10 @@ body {
 <li>Only <strong>one</strong> outstanding <code>ReadAsync</code> per connection at a time (single waiter)</li>
 <li>After processing the batch, call <code>ResetRead()</code> before the next <code>ReadAsync()</code></li>
 </ul>
-<h2>ReadResult<span class="hx:absolute hx:-mt-20" id="readresult"></span>
-    <a href="#readresult" class="subheading-anchor" aria-label="Permalink for this section"></a></h2><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
+<h2>RingSnapshot<span class="hx:absolute hx:-mt-20" id="ringsnapshot"></span>
+    <a href="#ringsnapshot" class="subheading-anchor" aria-label="Permalink for this section"></a></h2><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
-<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="k">readonly</span> <span class="k">struct</span> <span class="nc">ReadResult</span>
+<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="k">readonly</span> <span class="k">struct</span> <span class="nc">RingSnapshot</span>
 </span></span><span class="line"><span class="cl"><span class="p">{</span>
 </span></span><span class="line"><span class="cl">    <span class="kd">public</span> <span class="kt">long</span> <span class="n">TailSnapshot</span> <span class="p">{</span> <span class="k">get</span><span class="p">;</span> <span class="p">}</span>
 </span></span><span class="line"><span class="cl">    <span class="kd">public</span> <span class="kt">bool</span> <span class="n">IsClosed</span> <span class="p">{</span> <span class="k">get</span><span class="p">;</span> <span class="p">}</span>
@@ -1064,7 +1079,7 @@ body {
 <h3>GetAllSnapshotRingsAsUnmanagedMemory<span class="hx:absolute hx:-mt-20" id="getallsnapshotringsasunmanagedmemory"></span>
     <a href="#getallsnapshotringsasunmanagedmemory" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
-<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="n">UnmanagedMemoryManager</span><span class="p">[]</span> <span class="n">GetAllSnapshotRingsAsUnmanagedMemory</span><span class="p">(</span><span class="n">ReadResult</span> <span class="n">readResult</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="n">UnmanagedMemoryManager</span><span class="p">[]</span> <span class="n">GetAllSnapshotRingsAsUnmanagedMemory</span><span class="p">(</span><span class="n">RingSnapshot</span> <span class="n">readResult</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
     class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
     title="Copy code"
@@ -1094,7 +1109,7 @@ body {
 <h3>GetAllSnapshotRings<span class="hx:absolute hx:-mt-20" id="getallsnapshotrings"></span>
     <a href="#getallsnapshotrings" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
-<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="n">RingItem</span><span class="p">[]</span> <span class="n">GetAllSnapshotRings</span><span class="p">(</span><span class="n">ReadResult</span> <span class="n">readResult</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+<div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="n">RingItem</span><span class="p">[]</span> <span class="n">GetAllSnapshotRings</span><span class="p">(</span><span class="n">RingSnapshot</span> <span class="n">readResult</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
     class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
     title="Copy code"
@@ -1127,7 +1142,7 @@ body {
     <a href="#trydynamicallygetallsnapshotringsasreadonlysequence" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
 <div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="kt">bool</span> <span class="n">TryDynamicallyGetAllSnapshotRingsAsReadOnlySequence</span><span class="p">(</span>
-</span></span><span class="line"><span class="cl">    <span class="n">ReadResult</span> <span class="n">readResult</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="n">RingSnapshot</span> <span class="n">readResult</span><span class="p">,</span>
 </span></span><span class="line"><span class="cl">    <span class="k">out</span> <span class="n">List</span><span class="p">&lt;</span><span class="n">UnmanagedMemoryManager</span><span class="p">&gt;</span> <span class="n">rings</span><span class="p">,</span>
 </span></span><span class="line"><span class="cl">    <span class="k">out</span> <span class="n">ReadOnlySequence</span><span class="p">&lt;</span><span class="kt">byte</span><span class="p">&gt;</span> <span class="n">sequence</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
@@ -1144,7 +1159,7 @@ body {
     <a href="#trydynamicallygetallsnapshotringsasunmanagedmemory" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
 <div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="kt">bool</span> <span class="n">TryDynamicallyGetAllSnapshotRingsAsUnmanagedMemory</span><span class="p">(</span>
-</span></span><span class="line"><span class="cl">    <span class="n">ReadResult</span> <span class="n">readResult</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="n">RingSnapshot</span> <span class="n">readResult</span><span class="p">,</span>
 </span></span><span class="line"><span class="cl">    <span class="k">out</span> <span class="n">List</span><span class="p">&lt;</span><span class="n">UnmanagedMemoryManager</span><span class="p">&gt;</span> <span class="n">rings</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
     class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
@@ -1160,7 +1175,7 @@ body {
     <a href="#trydynamicallygetallsnapshotrings" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code">
 
 <div><div class="highlight"><pre tabindex="0" class="chroma"><code class="language-csharp" data-lang="csharp"><span class="line"><span class="cl"><span class="kd">public</span> <span class="kt">bool</span> <span class="n">TryDynamicallyGetAllSnapshotRings</span><span class="p">(</span>
-</span></span><span class="line"><span class="cl">    <span class="n">ReadResult</span> <span class="n">readResult</span><span class="p">,</span>
+</span></span><span class="line"><span class="cl">    <span class="n">RingSnapshot</span> <span class="n">readResult</span><span class="p">,</span>
 </span></span><span class="line"><span class="cl">    <span class="k">out</span> <span class="n">List</span><span class="p">&lt;</span><span class="n">RingItem</span><span class="p">&gt;</span> <span class="n">rings</span><span class="p">)</span></span></span></code></pre></div></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
     class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
@@ -1336,7 +1351,7 @@ body {
 <li>If no handler is armed, <code>_pending</code> is set for the next <code>ReadAsync()</code> fast-path</li>
 </ul>
 <h3>MarkClosed (Internal)<span class="hx:absolute hx:-mt-20" id="markclosed-internal"></span>
-    <a href="#markclosed-internal" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><p>Sets <code>_closed = 1</code> and wakes any armed handler so it receives <code>ReadResult.Closed()</code>.</p>
+    <a href="#markclosed-internal" class="subheading-anchor" aria-label="Permalink for this section"></a></h3><p>Sets <code>_closed = 1</code> and wakes any armed handler so it receives <code>RingSnapshot.Closed()</code>.</p>
 
         </div>
         <div class="hx:mt-16"></div>

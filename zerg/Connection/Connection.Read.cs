@@ -30,7 +30,7 @@ public sealed partial class Connection
     /// Completion primitive for the single awaiting ReadAsync().
     /// NOTE: ValueTask tokening is guarded by _generation, not by _readSignal.Version.
     /// </summary>
-    private ManualResetValueTaskSourceCore<ReadResult> _readSignal;
+    private ManualResetValueTaskSourceCore<RingSnapshot> _readSignal;
 
     /// <summary>
     /// 1 when a handler is waiting (armed) and must be woken by producer; otherwise 0.
@@ -85,7 +85,7 @@ public sealed partial class Connection
         Volatile.Write(ref _closed, 1);
 
         if (Interlocked.Exchange(ref _armed, 0) == 1)
-            _readSignal.SetResult(ReadResult.Closed(error));
+            _readSignal.SetResult(RingSnapshot.Closed(error));
         else
             Volatile.Write(ref _pending, 1);
     }
@@ -98,7 +98,7 @@ public sealed partial class Connection
     /// Wait until there is at least one recv available OR the connection is closed.
     ///
     /// Returns:
-    /// - A <see cref="ReadResult"/> with a tail snapshot that defines the batch boundary.
+    /// - A <see cref="RingSnapshot"/> with a tail snapshot that defines the batch boundary.
     ///   The consumer must drain items using that snapshot via <see cref="TryGetRing"/>.
     ///
     /// Rules:
@@ -106,11 +106,11 @@ public sealed partial class Connection
     /// - After draining the batch, call <see cref="ResetRead"/> to prepare for the next wait cycle.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ValueTask<ReadResult> ReadAsync()
+    public ValueTask<RingSnapshot> ReadAsync()
     {
         // If already closed (or reused), complete synchronously as closed.
         if (Volatile.Read(ref _closed) != 0)
-            return new ValueTask<ReadResult>(ReadResult.Closed());
+            return new ValueTask<RingSnapshot>(RingSnapshot.Closed());
 
         // Fast path: pending signal or ring not empty.
         // Pending is used as an "edge" bit: producer sets it when it couldn't wake a waiter.
@@ -120,12 +120,12 @@ public sealed partial class Connection
 
             // It might have become closed just now.
             if (Volatile.Read(ref _closed) != 0)
-                return new ValueTask<ReadResult>(ReadResult.Closed());
+                return new ValueTask<RingSnapshot>(RingSnapshot.Closed());
 
             long snap = _recv.SnapshotTail();
             SnapshotRingCount = (int)(snap - _recv.Head);
             
-            return new ValueTask<ReadResult>(new ReadResult(snap, isClosed: false));
+            return new ValueTask<RingSnapshot>(new RingSnapshot(snap, isClosed: false));
         }
 
         // Only one waiter is allowed.
@@ -139,11 +139,11 @@ public sealed partial class Connection
         if (Volatile.Read(ref _closed) != 0)
         {
             Interlocked.Exchange(ref _armed, 0);
-            return new ValueTask<ReadResult>(ReadResult.Closed());
+            return new ValueTask<RingSnapshot>(RingSnapshot.Closed());
         }
 
         // NOTE: token uses generation. The underlying completion still uses _readSignal.Version internally.
-        return new ValueTask<ReadResult>(this, (short)gen);
+        return new ValueTask<RingSnapshot>(this, (short)gen);
     }
 
     /// <summary>
@@ -168,7 +168,7 @@ public sealed partial class Connection
     }
 
     // =========================================================================
-    // IValueTaskSource<ReadResult> plumbing (tokened by generation)
+    // IValueTaskSource<RingSnapshot> plumbing (tokened by generation)
     // =========================================================================
 
     /// <summary>
@@ -178,10 +178,10 @@ public sealed partial class Connection
     /// - token == generation captured at arm time.
     /// - If the connection was cleared/reused, treat as closed (do not leak data across lifetimes).
     /// </summary>
-    ReadResult IValueTaskSource<ReadResult>.GetResult(short token)
+    RingSnapshot IValueTaskSource<RingSnapshot>.GetResult(short token)
     {
         if (token != (short)Volatile.Read(ref _generation))
-            return ReadResult.Closed();
+            return RingSnapshot.Closed();
 
         // We use _readSignal.Version as the internal version because Reset() advances it.
         return _readSignal.GetResult(_readSignal.Version);
@@ -191,7 +191,7 @@ public sealed partial class Connection
     /// Report status for the awaiting ReadAsync().
     /// If token is stale (reused), we report Succeeded so the awaiter will call GetResult and observe Closed().
     /// </summary>
-    ValueTaskSourceStatus IValueTaskSource<ReadResult>.GetStatus(short token)
+    ValueTaskSourceStatus IValueTaskSource<RingSnapshot>.GetStatus(short token)
     {
         if (token != (short)Volatile.Read(ref _generation))
             return ValueTaskSourceStatus.Succeeded;
@@ -203,7 +203,7 @@ public sealed partial class Connection
     /// Register continuation for the awaiting ReadAsync().
     /// If token is stale (reused), invoke continuation immediately.
     /// </summary>
-    void IValueTaskSource<ReadResult>.OnCompleted(
+    void IValueTaskSource<RingSnapshot>.OnCompleted(
         Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
     {
         if (token != (short)Volatile.Read(ref _generation))

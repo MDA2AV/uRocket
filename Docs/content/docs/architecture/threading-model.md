@@ -79,7 +79,7 @@ When a handler calls `FlushAsync()`, the connection's client fd is enqueued to t
 ```
 SpscRecvRing _recv (per connection)
 int _armed, _pending (atomics)
-ManualResetValueTaskSourceCore<ReadResult> _readSignal
+ManualResetValueTaskSourceCore<RingSnapshot> _readSignal
 ```
 
 The reactor enqueues `RingItem`s to the connection's SPSC ring and wakes the handler via the ValueTask completion source.

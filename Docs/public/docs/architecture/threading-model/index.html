@@ -190,9 +190,8 @@ body {
 
   <nav class="hextra-max-navbar-width hx:mx-auto hx:flex hx:items-center hx:justify-end hx:gap-2 hx:h-16 hx:px-6">
     <a class="hx:flex hx:items-center hx:hover:opacity-75 hx:ltr:mr-auto hx:rtl:ml-auto" href="/zerg/">
-    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="Logo" height="32" width="32" />
-    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="Dark Logo" height="32" width="32" />
-    <span class="hx:mr-2 hx:font-extrabold hx:inline hx:select-none" title="zerg">zerg</span>
+    <img class="hx:mr-2 hx:block hx:dark:hidden" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
+    <img class="hx:mr-2 hx:hidden hx:dark:block" src="/zerg/favicon.svg" alt="zerg" height="32" width="100" />
 </a>
 <a
   title=""
@@ -501,6 +500,14 @@ body {
   >Configuration Reference
     </a>
               
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
+    </a>
+              
             </li></ul>
       </div>
             </li><li class="hx:flex hx:flex-col "><a
@@ -717,6 +724,14 @@ body {
     href="/zerg/docs/api-reference/configuration/"
     
   >Configuration Reference
+    </a>
+              
+            </li><li class="hx:flex hx:flex-col "><a
+    class="hx:flex hx:items-center hx:justify-between hx:gap-2 hx:cursor-pointer hx:rounded-sm hx:px-2 hx:py-1.5 hx:text-sm hx:transition-colors [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [word-break:break-word]
+      hx:text-gray-500 hx:hover:bg-gray-100 hx:hover:text-gray-900 hx:contrast-more:border hx:contrast-more:border-transparent hx:contrast-more:text-gray-900 hx:contrast-more:hover:border-gray-900 hx:dark:text-neutral-400 hx:dark:hover:bg-primary-100/5 hx:dark:hover:text-gray-50 hx:contrast-more:dark:text-gray-50 hx:contrast-more:dark:hover:border-gray-50"
+    href="/zerg/docs/api-reference/connection-pipereader/"
+    
+  >ConnectionPipeReader
     </a>
               
             </li></ul>
@@ -1020,7 +1035,7 @@ body {
 
 <div><pre><code>SpscRecvRing _recv (per connection)
 int _armed, _pending (atomics)
-ManualResetValueTaskSourceCore&lt;ReadResult&gt; _readSignal</code></pre></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
+ManualResetValueTaskSourceCore&lt;RingSnapshot&gt; _readSignal</code></pre></div><div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0">
   <button
     class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
     title="Copy code"
