@@ -18,7 +18,7 @@ public sealed class ZergTestServer : IAsyncDisposable
     private readonly CancellationTokenSource _cts = new();
     private readonly Task _acceptLoop;
 
-    public ZergTestServer(Func<Connection, Task> handler, int reactorCount = 1)
+    public ZergTestServer(Func<Connection, Task> handler, int reactorCount = 1, ReactorConfig? reactorConfig = null)
     {
         Port = GetAvailablePort();
 
@@ -28,7 +28,10 @@ public sealed class ZergTestServer : IAsyncDisposable
             Port = (ushort)Port,
             ReactorCount = reactorCount,
             Backlog = 128,
-            AcceptorConfig = new AcceptorConfig(IPVersion: IPVersion.IPv4Only)
+            AcceptorConfig = new AcceptorConfig(IPVersion: IPVersion.IPv4Only),
+            ReactorConfigs = reactorConfig != null
+                ? Enumerable.Range(0, reactorCount).Select(_ => reactorConfig).ToArray()
+                : null
         });
 
         Engine.Listen();
