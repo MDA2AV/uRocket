@@ -28,6 +28,8 @@ public sealed unsafe partial class Engine {
                     }
                     DrainReturnQ();
                     DrainFlushQ();
+                    if (shim_sq_ready(io_uring_instance) > 0)
+                        shim_submit(io_uring_instance);
                     int got;
                     fixed (io_uring_cqe** pC = cqes) {
                         got = shim_peek_batch_cqe(io_uring_instance, pC, (uint)Config.BatchCqes);

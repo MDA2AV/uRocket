@@ -1,5 +1,6 @@
 using Examples.PipeReader;
 using Examples.Stream;
+using Examples.TechEmpower;
 using Examples.ZeroAlloc.Basic;
 using Examples.ZeroAlloc.SqPoll;
 using zerg;
@@ -9,6 +10,8 @@ using zerg.Engine.Configs;
 namespace Examples;
 
 // dotnet publish -f net10.0 -c Release /p:PublishAot=true /p:OptimizationPreference=Speed
+
+// claude --resume 532a13be-b294-4369-b764-5208f6b6ed3f 
 
 internal class Program
 {
@@ -45,7 +48,7 @@ internal class Program
                     BatchCqes: 4096,
                     MaxConnectionsPerReactor: 8 * 1024,
                     CqTimeout: 1_000_000,
-                    IncrementalBufferConsumption: false
+                    IncrementalBufferConsumption: true
                 )).ToArray()
             });
 
@@ -81,7 +84,15 @@ internal class Program
             {
                 var connection = await engine.AcceptAsync(cts.Token);
                 if (connection is null) continue;
-                _ = handler(connection);
+
+                if (mode == "te")
+                {
+                    _ = new ConnectionHandler().HandleConnectionAsync(connection);
+                }
+                else
+                {
+                    _ = handler(connection);
+                }
             }
         }
         catch (OperationCanceledException)
